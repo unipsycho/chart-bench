@@ -4,6 +4,18 @@ Desktop workbench for **CSV / XLS(X) / Parquet** graphing — **100% Rust**, **e
 
 Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart layouts, session autosave, and Follow mode for growing files.
 
+## Screenshots
+
+![csv-bench UI on M17](docs/screenshots/csv-bench-m17-ui.png)
+
+Chart toolbar (Options · Save PNG · Export CSV · …) and nested tile layouts:
+
+| Chart toolbar | Nested tiles |
+|---|---|
+| ![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png) | ![Nested tiles](docs/screenshots/csv-bench-nested-tiles.png) |
+
+Save PNG captures the full plot widget (axes + scales). Grid and tick ink follow chart background luminance — dark ink on light fills, quiet light ink on dark fills.
+
 ## Build / run
 
 Requires a recent Rust toolchain (edition 2021, rust-version 1.74+).
@@ -44,7 +56,8 @@ Binary: `target/release/csv-bench`.
 | Dual axis (linked X, stacked L/R plots) | ✅ |
 | Multi-chart stacked / side-by-side | ✅ |
 | Files **New chart** (plain-text control) | ✅ |
-| Chart toolbar **Save PNG** (plot capture) | ✅ |
+| Chart toolbar **Save PNG** (full widget: axes + scales) | ✅ |
+| Luminance-based grid / scale contrast | ✅ |
 | Info panel stats / spacing / gaps | ✅ |
 | Table preview | ✅ |
 | Session autosave | ✅ |

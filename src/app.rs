@@ -700,7 +700,7 @@ impl CsvBenchApp {
         visuals.selection.bg_fill = egui::Color32::from_rgb(88, 58, 140);
         visuals.selection.stroke = egui::Stroke::new(1.5_f32, accent);
         visuals.hyperlink_color = accent;
-        // Keep UI text bright; plot scopes dim text_color so egui_plot grids stay quiet.
+        // Keep UI text bright; plot scopes set contrast ink from chart background luminance.
         visuals.override_text_color = Some(egui::Color32::from_rgb(230, 224, 240));
         ctx.set_visuals(visuals);
         ctx.style_mut(|style| {
@@ -2562,7 +2562,7 @@ impl CsvBenchApp {
                 }
             }
             if chart_tool_button(ui, false, ChartToolIcon::SavePng)
-                .on_hover_text("Save PNG — capture this plot")
+                .on_hover_text("Save PNG — capture this plot (axes + scales)")
                 .clicked()
             {
                 if let Some(cid) = chart_id {
@@ -2894,13 +2894,16 @@ impl CsvBenchApp {
         let mut cursor_x: Option<f64> = None;
         let mut cursor_screen: Option<egui::Pos2> = None;
 
-        // Quiet grids: egui_plot paints grid from text_color — dim ≥50% in plot scope.
+        // Luminance contrast: light plot bg → dark grid/scale ink; dark bg → quiet light ink.
         // Custom crosshair + per-series Y (disable default single x/y tip to avoid clutter).
         // Plot fill comes from extreme_bg_color — set from Options background.
         let bg = draw.background;
-        with_quiet_plot_grid(ui, |ui| {
-            ui.visuals_mut().extreme_bg_color =
-                egui::Color32::from_rgb(bg[0], bg[1], bg[2]);
+        // Full plot widget (axes + plot) for Save PNG — response.rect is data-only.
+        let full_plot_widget = egui::Rect::from_min_size(
+            ui.available_rect_before_wrap().min,
+            egui::vec2(ui.available_width(), avail),
+        );
+        crate::chart_theme::with_plot_contrast(ui, bg, |ui| {
             // Link X only when this tile has drawable data — an empty sibling in the
             // shared link group poisons bounds (blank plots after Add chart).
             let has_plot_data = !overlay_series.is_empty() || preview.is_some();
@@ -3009,8 +3012,8 @@ impl CsvBenchApp {
                     }
                 }
             });
-            // Remember plot rect for Save PNG crop (points → pixels via screenshot).
-            self.plot_rects.insert(chart.id, plot_resp.response.rect);
+            // Remember full widget rect (axes + plot) for Save PNG — not data-only crop.
+            self.plot_rects.insert(chart.id, full_plot_widget);
 
             // Screen-space crosshair — never participates in plot bounds.
             if draw.show_crosshair && plot_resp.response.hovered() {
@@ -4480,17 +4483,6 @@ fn paint_table_glyph_in(painter: &egui::Painter, rect: egui::Rect) {
         [egui::pos2(r.left(), y_body), egui::pos2(r.right(), y_body)],
         stroke,
     );
-}
-
-/// Dim plot text_color so egui_plot grid lines are ≤ half opacity/brightness.
-fn with_quiet_plot_grid(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
-    ui.scope(|ui| {
-        let base = ui.visuals().text_color();
-        // Half-or-less of current strength (grids use gamma_multiply(strength.sqrt())).
-        let quiet = base.gamma_multiply(0.40);
-        ui.visuals_mut().override_text_color = Some(quiet);
-        add(ui);
-    });
 }
 
 /// Min/max Y across series points (pads flat ranges so dual-axis map stays invertible).

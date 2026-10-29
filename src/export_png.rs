@@ -1,4 +1,4 @@
-//! Crop a viewport screenshot to a plot rect and write PNG via save dialog.
+//! Crop a viewport screenshot to a plot widget rect (axes + scales + data) and write PNG.
 
 use std::path::{Path, PathBuf};
 
