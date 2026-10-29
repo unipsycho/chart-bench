@@ -1293,9 +1293,9 @@ impl CsvBenchApp {
                 drag.response.on_hover_text(
                     "Drag title — drop on a column: stack above or below (or take empty column)",
                 );
-                // Files header: Add chart (empty leaf — drag title to place)
+                // Files header: New chart (empty leaf — drag title to place)
                 if pane == DockPane::Files
-                    && chart_tool_button(ui, false, ChartToolIcon::AddChart)
+                    && files_new_chart_button(ui)
                         .on_hover_text("Add empty chart — then drag its title into place")
                         .clicked()
                 {
@@ -3843,6 +3843,43 @@ fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
     resp
 }
 
+/// Files header New chart control — painted plus+sparkline + “New chart” (no emoji/tofu).
+fn files_new_chart_button(ui: &mut egui::Ui) -> egui::Response {
+    let text = "New chart";
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            text.to_owned(),
+            egui::FontId::proportional(13.0),
+            egui::Color32::PLACEHOLDER,
+        )
+    });
+    let pad = ui.spacing().button_padding;
+    let icon = 14.0_f32;
+    let gap = 5.0_f32;
+    let size = egui::vec2(
+        pad.x * 2.0 + icon + gap + galley.size().x,
+        (pad.y * 2.0 + galley.size().y.max(icon)).max(FILES_TOOL_BTN_H),
+    );
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    paint_files_tool_chrome(ui, rect, &resp);
+    let painter = ui.painter();
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + pad.x, rect.center().y - icon * 0.5),
+        egui::vec2(icon, icon),
+    );
+    paint_add_chart_in(painter, icon_rect);
+    let text_pos = egui::pos2(
+        icon_rect.right() + gap,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    painter.galley(
+        text_pos,
+        galley,
+        egui::Color32::from_rgb(235, 225, 255),
+    );
+    resp
+}
+
 /// Files panel Recent control — same height/chrome as Open… + dropdown chevron.
 fn files_recent_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let galley = ui.fonts(|f| {
@@ -4000,8 +4037,6 @@ enum ChartToolIcon {
     Export,
     Clear,
     Duplicate,
-    /// Plus + mini chart — Add empty chart (Files header).
-    AddChart,
     PopOut,
     PopIn,
     Close,
@@ -4033,7 +4068,6 @@ fn chart_tool_button(ui: &mut egui::Ui, active: bool, icon: ChartToolIcon) -> eg
         ChartToolIcon::Export => paint_export_in(painter, icon_rect),
         ChartToolIcon::Clear => paint_clear_in(painter, icon_rect),
         ChartToolIcon::Duplicate => paint_duplicate_in(painter, icon_rect),
-        ChartToolIcon::AddChart => paint_add_chart_in(painter, icon_rect),
         ChartToolIcon::PopOut => paint_popout_in(painter, icon_rect, true),
         ChartToolIcon::PopIn => paint_popout_in(painter, icon_rect, false),
         ChartToolIcon::Close => paint_tool_close_in(painter, icon_rect),

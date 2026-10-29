@@ -7,5 +7,6 @@ Small demos and public-domain / open datasets for smoke-testing csv-bench.
 - `live_growing.csv` — used with `../scripts/grow_demo.sh` for Follow mode.
 
 - `excel/` — XLSX samples (single + multi-sheet); see `excel/README.md`.
+- `parquet/` — Parquet samples (stub ingest until CG-33); see `parquet/README.md`.
 
 Large soak-test files (100k–500k+ rows) may exist on a local machine but are **gitignored** so the public repo stays lean. See `docs/planning/csv-bench-sample-csvs.md` for provenance notes.
