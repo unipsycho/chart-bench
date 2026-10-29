@@ -52,6 +52,10 @@ pub struct CsvBenchApp {
     pending_favnyr: Option<FavnyrCommit>,
     /// Chart ids shown in independent OS / egui pop-out windows.
     popped_charts: HashSet<Uuid>,
+    /// Last painted plot rect per chart (egui points) — used to crop Save PNG.
+    plot_rects: HashMap<Uuid, egui::Rect>,
+    /// After Save PNG: wait for ViewportCommand::Screenshot reply.
+    pending_png: Option<PendingPngExport>,
     pub status: String,
     pub last_save: Instant,
     pub presets: PresetLibrary,
@@ -86,6 +90,8 @@ impl Default for CsvBenchApp {
             dock_hits: Vec::new(),
             pending_favnyr: None,
             popped_charts: HashSet::new(),
+            plot_rects: HashMap::new(),
+            pending_png: None,
             status: "Open a CSV / XLSX or load the demo sample.".into(),
             last_save: Instant::now(),
             presets: load_presets(),
@@ -854,11 +860,20 @@ impl CsvBenchApp {
     }
 }
 
+/// In-flight Save PNG — filled on toolbar click, completed when Screenshot arrives.
+struct PendingPngExport {
+    chart_id: Uuid,
+    title: String,
+    crop: egui::Rect,
+    viewport_id: egui::ViewportId,
+}
+
 impl eframe::App for CsvBenchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_follows();
         self.autosave();
         Self::apply_favnyr_theme(ctx);
+        self.poll_png_export(ctx);
 
         // fcitx/ibus sends Ime::Enabled for latin TextEdit; egui then strips Backspace/arrows
         // from the widget's events. Drop IME events so Filter (and other fields) edit normally.
@@ -1109,6 +1124,39 @@ impl eframe::App for CsvBenchApp {
 }
 
 impl CsvBenchApp {
+    /// Finish Save PNG once the viewport Screenshot event arrives.
+    fn poll_png_export(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending_png else {
+            return;
+        };
+        let viewport_id = pending.viewport_id;
+        let image = ctx.input(|i| {
+            i.events.iter().find_map(|ev| match ev {
+                egui::Event::Screenshot {
+                    viewport_id: vid,
+                    image,
+                } if *vid == viewport_id => Some(std::sync::Arc::clone(image)),
+                _ => None,
+            })
+        });
+        let Some(full) = image else {
+            // Screenshot is async (next frame) — keep pending and repaint.
+            ctx.request_repaint();
+            return;
+        };
+        let pending = self.pending_png.take().expect("pending_png checked");
+        let ppp = ctx.pixels_per_point();
+        match crate::export_png::save_plot_png(&pending.title, &full, pending.crop, ppp) {
+            Ok(path) => {
+                self.status = format!("Saved PNG ({})", path.display());
+            }
+            Err(e) => {
+                self.status = format!("Save PNG: {e}");
+            }
+        }
+        let _ = pending.chart_id;
+    }
+
     /// Render each popped chart in its own egui / OS viewport.
     fn show_chart_popouts(&mut self, ctx: &egui::Context) {
         let ids: Vec<Uuid> = self.popped_charts.iter().copied().collect();
@@ -2503,7 +2551,7 @@ impl CsvBenchApp {
                 "Drag to move: center = Swap; Top/Right/Bottom/Left = nest-split (never duplicates)",
             );
 
-            // Compact icon toolbar: Options · Export · Clear · Duplicate · Pop-out · Remove
+            // Compact icon toolbar: Options · Save PNG · Export CSV · Clear · Duplicate · Pop-out · Remove
             if let Some(c) = self.charts.get_mut(idx) {
                 let open = c.show_draw_options;
                 if chart_tool_button(ui, open, ChartToolIcon::Gear)
@@ -2511,6 +2559,27 @@ impl CsvBenchApp {
                     .clicked()
                 {
                     c.show_draw_options = !c.show_draw_options;
+                }
+            }
+            if chart_tool_button(ui, false, ChartToolIcon::SavePng)
+                .on_hover_text("Save PNG — capture this plot")
+                .clicked()
+            {
+                if let Some(cid) = chart_id {
+                    let crop = self
+                        .plot_rects
+                        .get(&cid)
+                        .copied()
+                        .unwrap_or(egui::Rect::NOTHING);
+                    self.pending_png = Some(PendingPngExport {
+                        chart_id: cid,
+                        title: title.clone(),
+                        crop,
+                        viewport_id: egui::ViewportId::ROOT,
+                    });
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Screenshot);
+                    self.status = "Capturing plot…".into();
                 }
             }
             if chart_tool_button(ui, false, ChartToolIcon::Export)
@@ -2940,6 +3009,9 @@ impl CsvBenchApp {
                     }
                 }
             });
+            // Remember plot rect for Save PNG crop (points → pixels via screenshot).
+            self.plot_rects.insert(chart.id, plot_resp.response.rect);
+
             // Screen-space crosshair — never participates in plot bounds.
             if draw.show_crosshair && plot_resp.response.hovered() {
                 if let Some(pos) = plot_resp.response.hover_pos() {
@@ -3843,7 +3915,7 @@ fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
     resp
 }
 
-/// Files header New chart control — painted plus+sparkline + “New chart” (no emoji/tofu).
+/// Files header New chart control — plain text “New chart” only (no +/- / sparkline icon).
 fn files_new_chart_button(ui: &mut egui::Ui) -> egui::Response {
     let text = "New chart";
     let galley = ui.fonts(|f| {
@@ -3854,22 +3926,15 @@ fn files_new_chart_button(ui: &mut egui::Ui) -> egui::Response {
         )
     });
     let pad = ui.spacing().button_padding;
-    let icon = 14.0_f32;
-    let gap = 5.0_f32;
     let size = egui::vec2(
-        pad.x * 2.0 + icon + gap + galley.size().x,
-        (pad.y * 2.0 + galley.size().y.max(icon)).max(FILES_TOOL_BTN_H),
+        pad.x * 2.0 + galley.size().x,
+        (pad.y * 2.0 + galley.size().y).max(FILES_TOOL_BTN_H),
     );
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     paint_files_tool_chrome(ui, rect, &resp);
     let painter = ui.painter();
-    let icon_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.left() + pad.x, rect.center().y - icon * 0.5),
-        egui::vec2(icon, icon),
-    );
-    paint_add_chart_in(painter, icon_rect);
     let text_pos = egui::pos2(
-        icon_rect.right() + gap,
+        rect.left() + pad.x,
         rect.center().y - galley.size().y * 0.5,
     );
     painter.galley(
@@ -4034,6 +4099,7 @@ const CHART_TOOL_BTN: f32 = 22.0;
 #[derive(Clone, Copy)]
 enum ChartToolIcon {
     Gear,
+    SavePng,
     Export,
     Clear,
     Duplicate,
@@ -4065,6 +4131,7 @@ fn chart_tool_button(ui: &mut egui::Ui, active: bool, icon: ChartToolIcon) -> eg
     let icon_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(14.0, 14.0));
     match icon {
         ChartToolIcon::Gear => paint_gear_in(painter, icon_rect),
+        ChartToolIcon::SavePng => paint_save_png_in(painter, icon_rect),
         ChartToolIcon::Export => paint_export_in(painter, icon_rect),
         ChartToolIcon::Clear => paint_clear_in(painter, icon_rect),
         ChartToolIcon::Duplicate => paint_duplicate_in(painter, icon_rect),
@@ -4073,6 +4140,35 @@ fn chart_tool_button(ui: &mut egui::Ui, active: bool, icon: ChartToolIcon) -> eg
         ChartToolIcon::Close => paint_tool_close_in(painter, icon_rect),
     }
     resp
+}
+
+/// Picture frame + mountain mark (Save PNG of plot).
+fn paint_save_png_in(painter: &egui::Painter, rect: egui::Rect) {
+    let ink = egui::Color32::from_rgb(220, 205, 245);
+    let stroke = egui::Stroke::new(1.3_f32, ink);
+    let frame = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 1.0, rect.top() + 1.5),
+        egui::pos2(rect.right() - 1.0, rect.bottom() - 1.5),
+    );
+    painter.rect_stroke(frame, egui::Rounding::same(1.5), stroke);
+    // Sun
+    painter.circle_filled(
+        egui::pos2(frame.left() + 3.5, frame.top() + 3.5),
+        1.4,
+        ink,
+    );
+    // Mountain polyline
+    let base_y = frame.bottom() - 1.5;
+    let pts = [
+        egui::pos2(frame.left() + 1.5, base_y),
+        egui::pos2(frame.left() + 4.5, frame.center().y + 0.5),
+        egui::pos2(frame.center().x + 0.5, base_y - 1.0),
+        egui::pos2(frame.right() - 1.5, frame.top() + 4.0),
+        egui::pos2(frame.right() - 1.5, base_y),
+    ];
+    for w in pts.windows(2) {
+        painter.line_segment([w[0], w[1]], stroke);
+    }
 }
 
 /// Paint a gear mark into `rect` (hub + rim + six teeth).
@@ -4181,33 +4277,6 @@ fn paint_duplicate_in(painter: &egui::Painter, rect: egui::Rect) {
     );
     painter.rect_stroke(back, egui::Rounding::same(1.5), stroke);
     painter.rect_stroke(front, egui::Rounding::same(1.5), stroke);
-}
-
-/// Plus mark + rising line (Add empty chart).
-fn paint_add_chart_in(painter: &egui::Painter, rect: egui::Rect) {
-    let ink = egui::Color32::from_rgb(220, 205, 245);
-    let stroke = egui::Stroke::new(1.4_f32, ink);
-    // Plus in left half
-    let cx = rect.left() + rect.width() * 0.32;
-    let cy = rect.center().y;
-    let arm = 3.2_f32;
-    painter.line_segment(
-        [egui::pos2(cx - arm, cy), egui::pos2(cx + arm, cy)],
-        stroke,
-    );
-    painter.line_segment(
-        [egui::pos2(cx, cy - arm), egui::pos2(cx, cy + arm)],
-        stroke,
-    );
-    // Mini rising polyline on the right
-    let pts = [
-        egui::pos2(rect.center().x - 0.5, rect.bottom() - 1.5),
-        egui::pos2(rect.center().x + 2.0, rect.center().y + 1.5),
-        egui::pos2(rect.right() - 1.0, rect.top() + 1.5),
-    ];
-    for w in pts.windows(2) {
-        painter.line_segment([w[0], w[1]], stroke);
-    }
 }
 
 /// Window + corner arrow (`out` = pop-out, else pop-in).
