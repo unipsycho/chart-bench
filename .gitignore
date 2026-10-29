@@ -1,0 +1,36 @@
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+.DS_Store
+*.deb
+*.dmg
+*.msi
+*.exe
+/dist/
+/vendor/
+
+# Local research / scrape caches
+.firecrawl/
+
+# Ad-hoc dumps at repo root (keep samples/ instead)
+/Chart_4.csv
+/*.csv.bak
+
+# Huge stress CSVs kept locally for soak tests — not shipped in the public tree
+samples/beijing_aq_multisite_420k.csv
+samples/flights_200k.csv
+samples/household_power_250k.csv
+samples/iot_env_sensors_405k.csv
+samples/iot_sensor_long_100k.csv
+samples/OTSG2-PROCESS LOGDATA.csv
+samples/uber_nyc_sep2014.csv
+
+# Session / secrets (never commit)
+.env
+.env.*
+*.sk
+*.sk.hex
+ed25519.sk
+ed25519.sk.hex
+**/session_secrets*
+**/*credentials*
