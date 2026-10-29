@@ -299,34 +299,106 @@ fn push_data_row(ds: &mut Dataset, cells: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Load xlsx first sheet via calamine (single header row detect still runs).
-pub fn load_xlsx_path(path: &Path) -> anyhow::Result<Dataset> {
+/// True when a sheet has at least one non-empty cell.
+fn sheet_nonempty(rows: &[Vec<String>]) -> bool {
+    rows.iter()
+        .any(|r| r.iter().any(|c| !c.trim().is_empty()))
+}
+
+/// Load every non-empty sheet in an XLSX workbook as its own dataset.
+/// Display names are `file.xlsx :: SheetName`.
+pub fn load_xlsx_workbook(path: &Path) -> anyhow::Result<Vec<Dataset>> {
     use calamine::{Reader, Xlsx};
     let mut workbook: Xlsx<_> = calamine::open_workbook(path)?;
-    let range = workbook
-        .worksheets()
-        .into_iter()
-        .next()
-        .map(|(_, r)| r)
-        .ok_or_else(|| anyhow::anyhow!("empty workbook"))?;
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    for row in range.rows() {
-        rows.push(
-            row.iter()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>(),
-        );
-    }
-    let table = RawTable { rows };
-    let plan = detect_parse_plan(&table);
+    let file_stem = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("workbook.xlsx");
     let meta = std::fs::metadata(path)?;
-    build_dataset(path, table, plan, meta.len())
+    let mut out = Vec::new();
+    for (sheet_name, range) in workbook.worksheets() {
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        for row in range.rows() {
+            rows.push(row.iter().map(|c| c.to_string()).collect());
+        }
+        if !sheet_nonempty(&rows) {
+            continue;
+        }
+        let table = RawTable { rows };
+        let plan = detect_parse_plan(&table);
+        let mut ds = build_dataset(path, table, plan, meta.len())?;
+        ds.display_name = format!("{file_stem} :: {sheet_name}");
+        out.push(ds);
+    }
+    if out.is_empty() {
+        anyhow::bail!("empty workbook (no non-empty sheets): {}", path.display());
+    }
+    Ok(out)
+}
+
+/// Load first non-empty sheet via calamine (compat wrapper around workbook load).
+pub fn load_xlsx_path(path: &Path) -> anyhow::Result<Dataset> {
+    let mut sheets = load_xlsx_workbook(path)?;
+    Ok(sheets.remove(0))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn loads_xlsx_single_sheet_sample() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("samples/excel/seattle_weather.xlsx");
+        if !path.exists() {
+            return;
+        }
+        let sheets = load_xlsx_workbook(&path).expect("single-sheet xlsx");
+        assert_eq!(sheets.len(), 1);
+        assert!(
+            sheets[0].display_name.contains("seattle_weather.xlsx ::"),
+            "got {}",
+            sheets[0].display_name
+        );
+        assert!(!sheets[0].channels.is_empty());
+        assert!(sheets[0].record_count() > 0);
+        let one = load_xlsx_path(&path).expect("compat first sheet");
+        assert_eq!(one.display_name, sheets[0].display_name);
+    }
+
+    #[test]
+    fn loads_xlsx_multi_sheet_weather_combo() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("samples/excel/weather_combo.xlsx");
+        if !path.exists() {
+            return;
+        }
+        let sheets = load_xlsx_workbook(&path).expect("multi-sheet xlsx");
+        assert!(
+            sheets.len() >= 2,
+            "expected ≥2 non-empty sheets, got {}",
+            sheets.len()
+        );
+        for ds in &sheets {
+            assert!(
+                ds.display_name.starts_with("weather_combo.xlsx :: "),
+                "got {}",
+                ds.display_name
+            );
+            assert!(!ds.channels.is_empty(), "{}", ds.display_name);
+            assert!(ds.record_count() > 0, "{}", ds.display_name);
+        }
+        let names: Vec<_> = sheets.iter().map(|d| d.display_name.as_str()).collect();
+        assert!(
+            names.iter().any(|n| n.contains("Seattle")),
+            "missing Seattle sheet: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.contains("Vega") || n.contains("Temps")),
+            "missing second weather sheet: {names:?}"
+        );
+    }
 
     #[test]
     fn loads_demo_multiline_csv() {

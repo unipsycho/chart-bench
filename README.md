@@ -36,7 +36,7 @@ Binary: `target/release/csv-bench`.
 |------|--------|
 | Multi-line header detect (names/nodes/units) | ✅ |
 | Auto time column → X, else index | ✅ |
-| CSV + XLSX import | ✅ |
+| CSV + XLSX import (all non-empty sheets → `file.xlsx :: Sheet`) | ✅ |
 | Parquet | stub (clear error) |
 | Channels panel + sparklines + filter | ✅ |
 | Drag channel → chart (Shift = right axis) | ✅ |
