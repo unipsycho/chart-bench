@@ -582,47 +582,27 @@ impl CsvBenchApp {
         self.status = "Swapped charts.".into();
     }
 
-    /// Nest `moving` into a split of `target` on `edge` (move, not flatten).
-    fn nest_chart_split(&mut self, moving: Uuid, target: Uuid, edge: TileEdge, duplicate: bool) {
-        if moving == target && !duplicate {
+    /// Nest `moving` into a split of `target` on `edge` (always move — never clone).
+    fn nest_chart_split(&mut self, moving: Uuid, target: Uuid, edge: TileEdge) {
+        if moving == target {
             return;
         }
         self.ensure_chart_tree();
-        let incoming = if duplicate {
-            let Some(from_idx) = self.charts.iter().position(|c| c.id == moving) else {
-                return;
-            };
-            let src = self.charts[from_idx].clone();
-            let chart = ChartState {
-                id: Uuid::new_v4(),
-                title: self.next_unique_chart_title(),
-                series: src.series,
-                follow_tail: src.follow_tail,
-                draw: src.draw,
-                show_draw_options: false,
-            };
-            let id = chart.id;
-            self.charts.push(chart);
-            self.active_chart = self.charts.len() - 1;
-            id
-        } else {
-            // Detach moving leaf first so split_at can place it under target
-            if let Some(tree) = self.ui.chart_tree.as_mut() {
-                tree.remove_leaf(moving);
-            }
-            if let Some(i) = self.charts.iter().position(|c| c.id == moving) {
-                self.active_chart = i;
-            }
-            moving
-        };
+        // Detach moving leaf first so split_at can place it under target
+        if let Some(tree) = self.ui.chart_tree.as_mut() {
+            tree.remove_leaf(moving);
+        }
+        if let Some(i) = self.charts.iter().position(|c| c.id == moving) {
+            self.active_chart = i;
+        }
         if self.charts.len() > 1 && self.ui.chart_layout == ChartLayout::Overlay {
             self.ui.chart_layout = ChartLayout::Stacked;
         }
         if let Some(tree) = self.ui.chart_tree.as_mut() {
-            if !tree.split_at(target, incoming, edge) {
+            if !tree.split_at(target, moving, edge) {
                 // Fallback: attach at root on that edge
                 let old = tree.clone();
-                let neu = ChartTileTree::leaf(incoming);
+                let neu = ChartTileTree::leaf(moving);
                 let (dir, first, second) = match edge {
                     TileEdge::North => (TileSplit::Rows, neu, old),
                     TileEdge::South => (TileSplit::Rows, old, neu),
@@ -639,6 +619,19 @@ impl CsvBenchApp {
             tree.sync_with_charts(&self.charts, self.ui.chart_layout);
         }
         self.status = format!("Nested split ({edge}).");
+    }
+
+    /// Create an empty chart leaf (drag into place); duplicate stays on the toolbar only.
+    fn add_empty_chart(&mut self) {
+        let title = self.next_unique_chart_title();
+        let chart = ChartState::new(title);
+        self.charts.push(chart);
+        self.active_chart = self.charts.len() - 1;
+        if self.charts.len() > 1 && self.ui.chart_layout == ChartLayout::Overlay {
+            self.ui.chart_layout = ChartLayout::Stacked;
+        }
+        self.ensure_chart_tree();
+        self.status = "Added empty chart — drag title to place.".into();
     }
 
     fn remove_chart_at(&mut self, idx: usize) {
@@ -1234,6 +1227,7 @@ impl CsvBenchApp {
         let body = |ui: &mut egui::Ui, app: &mut Self| {
             // Draggable title — rearrange via DnD (no chevron move buttons)
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
                 let id = egui::Id::new(("dock_hdr", pane));
                 let drag = ui.dnd_drag_source(id, pane, |ui| {
                     let fill = if ui.ctx().is_being_dragged(id) {
@@ -1274,6 +1268,14 @@ impl CsvBenchApp {
                 drag.response.on_hover_text(
                     "Drag title — drop on a column: stack above or below (or take empty column)",
                 );
+                // Files header: Add chart (empty leaf — drag title to place)
+                if pane == DockPane::Files
+                    && chart_tool_button(ui, false, ChartToolIcon::AddChart)
+                        .on_hover_text("Add empty chart — then drag its title into place")
+                        .clicked()
+                {
+                    app.add_empty_chart();
+                }
             });
 
             ui.add_space(4.0);
@@ -1441,10 +1443,9 @@ impl CsvBenchApp {
                 from,
                 target,
                 edge,
-                duplicate,
             } => {
                 let _ = egui::DragAndDrop::take_payload::<ChartDrag>(ctx);
-                self.nest_chart_split(from, target, edge, duplicate);
+                self.nest_chart_split(from, target, edge);
                 self.status = format!("Chart split ({label})");
             }
         }
@@ -1513,7 +1514,6 @@ impl CsvBenchApp {
                     from,
                     target,
                     edge,
-                    duplicate,
                 } => {
                     *from = from_id;
                     if *target == Uuid::nil() {
@@ -1531,7 +1531,9 @@ impl CsvBenchApp {
                         };
                         if let Some(anchor) = anchor {
                             if anchor == from_id {
-                                *duplicate = true;
+                                // Only one leaf / self-anchor — cannot move onto self
+                                self.pending_favnyr = None;
+                                return;
                             }
                             *target = anchor;
                         } else {
@@ -1539,8 +1541,9 @@ impl CsvBenchApp {
                             return;
                         }
                     } else if *target == from_id {
-                        // Edge on own tile → duplicate into nested split
-                        *duplicate = true;
+                        // Edge on own tile — no-op (never clone on drag)
+                        self.pending_favnyr = None;
+                        return;
                     }
                 }
                 FavnyrCommit::Dock { .. } => {}
@@ -1580,10 +1583,20 @@ impl CsvBenchApp {
                 } else {
                     format!("Recent ({})", recent_closed.len().min(25))
                 };
-                egui::ComboBox::from_id_salt("files_recent")
-                    .selected_text(recent_label)
-                    .width(110.0)
-                    .show_ui(ui, |ui| {
+                // Same painted height/chrome as Open… (aligned toolbar row)
+                let recent_resp = files_recent_button(ui, &recent_label)
+                    .on_hover_text("Recently closed files / Demo sample");
+                let popup_id = ui.make_persistent_id("files_recent_popup");
+                if recent_resp.clicked() {
+                    ui.memory_mut(|m| m.toggle_popup(popup_id));
+                }
+                egui::popup::popup_below_widget(
+                    ui,
+                    popup_id,
+                    &recent_resp,
+                    egui::popup::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
+                        ui.set_min_width(recent_resp.rect.width().max(160.0));
                         if recent_closed.is_empty() {
                             ui.weak("No recent closed files");
                         } else {
@@ -1609,7 +1622,8 @@ impl CsvBenchApp {
                         {
                             load_demo = true;
                         }
-                    });
+                    },
+                );
                 if files_open_button(ui)
                     .on_hover_text("Open CSV / TSV / XLSX / Parquet (Ctrl+O)")
                     .clicked()
@@ -2248,12 +2262,13 @@ impl CsvBenchApp {
             }
         }
 
-        // Preview: keys while Channels focused; hover only while pointer is in the list.
-        // Leaving the list clears sticky hover preview (do not keep last dotted series).
+        // Preview: keys while Channels focused; hover while a row is under the pointer.
+        // Leaving the list (no row hover) clears sticky preview — do not keep last dotted series.
+        // Prefer hover_preview over list_rect.contains (fill-scroll layouts can desync inner_rect).
         self.channel_preview = if self.channel_nav_from_keys && self.channels_focused {
             self.channel_cursor
                 .and_then(|i| rows.get(i).map(|(_, cid, _, _)| *cid))
-        } else if list_hovered {
+        } else if hover_preview.is_some() {
             hover_preview
         } else {
             None
@@ -2460,7 +2475,7 @@ impl CsvBenchApp {
                 self.active_chart = idx;
             }
             drag.response.on_hover_text(
-                "Drag: center = Swap; Top/Right/Bottom/Left = nested split of that tile",
+                "Drag to move: center = Swap; Top/Right/Bottom/Left = nest-split (never duplicates)",
             );
 
             // Compact icon toolbar: Options · Export · Clear · Duplicate · Pop-out · Remove
@@ -2792,9 +2807,14 @@ impl CsvBenchApp {
         with_quiet_plot_grid(ui, |ui| {
             ui.visuals_mut().extreme_bg_color =
                 egui::Color32::from_rgb(bg[0], bg[1], bg[2]);
-            let mut plot_l = Plot::new(("plot_l", chart.id))
-                .link_axis(egui::Id::new("csv_bench_shared_x"), true, false)
-                .height(avail)
+            // Link X only when this tile has drawable data — an empty sibling in the
+            // shared link group poisons bounds (blank plots after Add chart).
+            let has_plot_data = !overlay_series.is_empty() || preview.is_some();
+            let mut plot_l = Plot::new(("plot_l", chart.id)).height(avail);
+            if has_plot_data {
+                plot_l = plot_l.link_axis(egui::Id::new("csv_bench_shared_x"), true, false);
+            }
+            plot_l = plot_l
                 // No hover/wheel/edge axis pan — wheel zooms via apply_wheel_zoom_clamped; drag pans.
                 .allow_scroll(false)
                 .allow_drag(true)
@@ -3051,13 +3071,11 @@ enum FavnyrCommit {
         a: Uuid,
         b: Uuid,
     },
-    /// Directional drop — nest `from` into a split of `target`'s leaf (L-shapes stay nested).
+    /// Directional drop — nest `from` into a split of `target`'s leaf (move only).
     ChartSplit {
         from: Uuid,
         target: Uuid,
         edge: TileEdge,
-        /// True when splitting onto self (duplicate into new leaf).
-        duplicate: bool,
     },
 }
 
@@ -3195,47 +3213,38 @@ fn resolve_favnyr_action(
                 // Here `from_idx` is usize — convert via a side channel in FavnyrCommit.
                 // ChartSplit.from / ChartSwap.a are Uuid — resolve below using index→need charts.
                 // Keep usize payload on ChartDrag; resolve Uuid in favnyr_dock_drop_preview.
-                let (preview, label, landing, edge, duplicate_self) = match zone {
+                let (preview, label, landing, edge) = match zone {
                     EdgeZone::North => (
                         top_half(hit.rect),
                         "SPLIT · top",
                         LandingKind::SplitTop,
                         TileEdge::North,
-                        false,
                     ),
                     EdgeZone::South => (
                         bottom_half(hit.rect),
                         "SPLIT · bottom",
                         LandingKind::SplitBottom,
                         TileEdge::South,
-                        false,
                     ),
                     EdgeZone::West => (
                         left_half(hit.rect),
                         "SPLIT · left",
                         LandingKind::SplitLeft,
                         TileEdge::West,
-                        false,
                     ),
                     EdgeZone::East => (
                         right_half(hit.rect),
                         "SPLIT · right",
                         LandingKind::SplitRight,
                         TileEdge::East,
-                        false,
                     ),
                     EdgeZone::Center => (
                         hit.rect.shrink(4.0),
                         "Swap",
                         LandingKind::Swap,
                         TileEdge::South, // unused
-                        false,
                     ),
                 };
-                // Encode from_idx in Uuid nil-variant isn't possible; use ChartDrag index
-                // via special Uuid: we pass from_idx in commit by storing index in a fake way.
-                // Fix: change resolve to take Option<(usize, Uuid)> for dragging chart.
-                let _ = duplicate_self;
                 if matches!(zone, EdgeZone::Center) {
                     FavnyrAction {
                         preview,
@@ -3256,7 +3265,6 @@ fn resolve_favnyr_action(
                             from: Uuid::from_u128(from_idx as u128),
                             target,
                             edge,
-                            duplicate: false, // set true by caller when from==target
                         },
                     }
                 }
@@ -3278,7 +3286,6 @@ fn resolve_favnyr_action(
                         from: Uuid::from_u128(from_idx as u128),
                         target: Uuid::nil(), // means: split at root
                         edge,
-                        duplicate: false,
                     },
                 }
             }
@@ -3335,7 +3342,6 @@ fn resolve_favnyr_action(
                             from: Uuid::from_u128(from_idx as u128),
                             target: Uuid::nil(),
                             edge,
-                            duplicate: false,
                         },
                     }
                 }
@@ -3772,6 +3778,9 @@ fn paint_chart_glyph(ui: &mut egui::Ui) {
     }
 }
 
+/// Shared Files toolbar chrome height (Open / Recent aligned row).
+const FILES_TOOL_BTN_H: f32 = 22.0;
+
 /// Files panel Open… control — painted folder + “Open…” (matches chart tool icons).
 fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
     let text = "Open…";
@@ -3787,23 +3796,11 @@ fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
     let gap = 5.0_f32;
     let size = egui::vec2(
         pad.x * 2.0 + icon + gap + galley.size().x,
-        (pad.y * 2.0 + galley.size().y.max(icon)).max(22.0),
+        (pad.y * 2.0 + galley.size().y.max(icon)).max(FILES_TOOL_BTN_H),
     );
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    let visuals = ui.style().interact(&resp);
-    let fill = if resp.hovered() {
-        egui::Color32::from_rgb(56, 48, 88)
-    } else {
-        visuals.weak_bg_fill
-    };
+    paint_files_tool_chrome(ui, rect, &resp);
     let painter = ui.painter();
-    let rounding = egui::Rounding::same(4.0);
-    painter.rect_filled(rect, rounding, fill);
-    painter.rect_stroke(
-        rect,
-        rounding,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(130, 100, 180)),
-    );
     let icon_rect = egui::Rect::from_min_size(
         egui::pos2(rect.left() + pad.x, rect.center().y - icon * 0.5),
         egui::vec2(icon, icon),
@@ -3819,6 +3816,86 @@ fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
         egui::Color32::from_rgb(235, 225, 255),
     );
     resp
+}
+
+/// Files panel Recent control — same height/chrome as Open… + dropdown chevron.
+fn files_recent_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            label.to_owned(),
+            egui::FontId::proportional(13.0),
+            egui::Color32::PLACEHOLDER,
+        )
+    });
+    let pad = ui.spacing().button_padding;
+    let icon = 14.0_f32;
+    let gap = 5.0_f32;
+    let chevron = 8.0_f32;
+    let size = egui::vec2(
+        pad.x * 2.0 + icon + gap + galley.size().x + gap + chevron,
+        (pad.y * 2.0 + galley.size().y.max(icon)).max(FILES_TOOL_BTN_H),
+    );
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    paint_files_tool_chrome(ui, rect, &resp);
+    let painter = ui.painter();
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + pad.x, rect.center().y - icon * 0.5),
+        egui::vec2(icon, icon),
+    );
+    paint_recent_clock_in(painter, icon_rect);
+    let text_pos = egui::pos2(
+        icon_rect.right() + gap,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    painter.galley(
+        text_pos,
+        galley,
+        egui::Color32::from_rgb(235, 225, 255),
+    );
+    // Dropdown chevron
+    let cx = rect.right() - pad.x - chevron * 0.5;
+    let cy = rect.center().y;
+    let ink = egui::Color32::from_rgb(220, 205, 245);
+    let stroke = egui::Stroke::new(1.3_f32, ink);
+    painter.line_segment(
+        [egui::pos2(cx - 3.0, cy - 1.5), egui::pos2(cx, cy + 1.5)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(cx + 3.0, cy - 1.5), egui::pos2(cx, cy + 1.5)],
+        stroke,
+    );
+    resp
+}
+
+/// Shared Open/Recent button fill + purple stroke.
+fn paint_files_tool_chrome(ui: &egui::Ui, rect: egui::Rect, resp: &egui::Response) {
+    let visuals = ui.style().interact(resp);
+    let fill = if resp.hovered() {
+        egui::Color32::from_rgb(56, 48, 88)
+    } else {
+        visuals.weak_bg_fill
+    };
+    let painter = ui.painter();
+    let rounding = egui::Rounding::same(4.0);
+    painter.rect_filled(rect, rounding, fill);
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(130, 100, 180)),
+    );
+}
+
+/// Clock mark for Recent dropdown (Files toolbar).
+fn paint_recent_clock_in(painter: &egui::Painter, rect: egui::Rect) {
+    let ink = egui::Color32::from_rgb(220, 205, 245);
+    let stroke = egui::Stroke::new(1.3_f32, ink);
+    let c = rect.center();
+    let r = (rect.width().min(rect.height()) * 0.42).max(4.0);
+    painter.circle_stroke(c, r, stroke);
+    // Hands
+    painter.line_segment([c, egui::pos2(c.x, c.y - r * 0.55)], stroke);
+    painter.line_segment([c, egui::pos2(c.x + r * 0.4, c.y + r * 0.15)], stroke);
 }
 
 /// Open-folder glyph (document flap + body) for Files → Open.
@@ -3898,6 +3975,8 @@ enum ChartToolIcon {
     Export,
     Clear,
     Duplicate,
+    /// Plus + mini chart — Add empty chart (Files header).
+    AddChart,
     PopOut,
     PopIn,
     Close,
@@ -3929,6 +4008,7 @@ fn chart_tool_button(ui: &mut egui::Ui, active: bool, icon: ChartToolIcon) -> eg
         ChartToolIcon::Export => paint_export_in(painter, icon_rect),
         ChartToolIcon::Clear => paint_clear_in(painter, icon_rect),
         ChartToolIcon::Duplicate => paint_duplicate_in(painter, icon_rect),
+        ChartToolIcon::AddChart => paint_add_chart_in(painter, icon_rect),
         ChartToolIcon::PopOut => paint_popout_in(painter, icon_rect, true),
         ChartToolIcon::PopIn => paint_popout_in(painter, icon_rect, false),
         ChartToolIcon::Close => paint_tool_close_in(painter, icon_rect),
@@ -4042,6 +4122,33 @@ fn paint_duplicate_in(painter: &egui::Painter, rect: egui::Rect) {
     );
     painter.rect_stroke(back, egui::Rounding::same(1.5), stroke);
     painter.rect_stroke(front, egui::Rounding::same(1.5), stroke);
+}
+
+/// Plus mark + rising line (Add empty chart).
+fn paint_add_chart_in(painter: &egui::Painter, rect: egui::Rect) {
+    let ink = egui::Color32::from_rgb(220, 205, 245);
+    let stroke = egui::Stroke::new(1.4_f32, ink);
+    // Plus in left half
+    let cx = rect.left() + rect.width() * 0.32;
+    let cy = rect.center().y;
+    let arm = 3.2_f32;
+    painter.line_segment(
+        [egui::pos2(cx - arm, cy), egui::pos2(cx + arm, cy)],
+        stroke,
+    );
+    painter.line_segment(
+        [egui::pos2(cx, cy - arm), egui::pos2(cx, cy + arm)],
+        stroke,
+    );
+    // Mini rising polyline on the right
+    let pts = [
+        egui::pos2(rect.center().x - 0.5, rect.bottom() - 1.5),
+        egui::pos2(rect.center().x + 2.0, rect.center().y + 1.5),
+        egui::pos2(rect.right() - 1.0, rect.top() + 1.5),
+    ];
+    for w in pts.windows(2) {
+        painter.line_segment([w[0], w[1]], stroke);
+    }
 }
 
 /// Window + corner arrow (`out` = pop-out, else pop-in).

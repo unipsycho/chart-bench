@@ -152,9 +152,12 @@ pub fn parse_time_value(s: &str) -> Option<f64> {
     const FMTS: &[&str] = &[
         "%Y-%m-%dT%H:%M:%S%.f",
         "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
         "%Y-%m-%d %H:%M:%S%.f",
         "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M", // wind_laurel / minute-resolution logs
         "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
         "%d/%m/%Y %H:%M:%S",
         "%m/%d/%Y %H:%M:%S",
         "%Y-%m-%d",
@@ -236,5 +239,12 @@ mod tests {
     fn parses_labview_ampm() {
         let v = parse_time_value("9:24:34.354 AM 2019-10-30").unwrap();
         assert!(v > 1.0e9);
+    }
+
+    #[test]
+    fn parses_minute_resolution_datetime() {
+        let v = parse_time_value("2001-06-11 11:00").unwrap();
+        // 2001-06 is ~9.92e8 s (before the 1e9 epoch landmark)
+        assert!((9.9e8..1.0e9).contains(&v), "got {v}");
     }
 }

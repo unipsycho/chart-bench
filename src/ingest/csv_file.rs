@@ -158,8 +158,8 @@ fn build_dataset(
         }
         let xv = if let Some(xc) = x_col {
             row.get(xc)
-                .and_then(|s| parse_time_value(s))
-                .unwrap_or(i as f64)
+                .and_then(|s| parse_time_value(s).or_else(|| parse_number(s)))
+                .unwrap_or((i - plan.data_start_row) as f64)
         } else {
             (i - plan.data_start_row) as f64
         };
@@ -279,7 +279,7 @@ fn push_data_row(ds: &mut Dataset, cells: &[String]) -> anyhow::Result<()> {
     let xv = if let Some(xc) = x_col {
         cells
             .get(xc)
-            .and_then(|s| parse_time_value(s))
+            .and_then(|s| parse_time_value(s).or_else(|| parse_number(s)))
             .unwrap_or(ds.x.len() as f64)
     } else {
         ds.x.len() as f64
@@ -382,5 +382,45 @@ mod tests {
                 .map(|u| u.contains("kPa") || u.contains("H2O"))
                 .unwrap_or(false)
         }));
+    }
+}
+
+#[cfg(test)]
+mod wind_laurel_probe {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn loads_wind_laurel() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("samples/wind_laurel.csv");
+        let ds = load_csv_path(&path).expect("wind_laurel");
+        assert_eq!(ds.channels.len(), 2, "Time col excluded from channels");
+        assert!(ds.x_is_time, "Time column must be XMode::Time");
+        assert!(
+            ds.channels
+                .iter()
+                .any(|c| c.display_name.contains("Std Dev") || c.name.contains("Std Dev")),
+            "got names: {:?}",
+            ds.channels.iter().map(|c| &c.display_name).collect::<Vec<_>>()
+        );
+        assert!(
+            ds.channels
+                .iter()
+                .any(|c| c.display_name.contains("Sampled Avg") || c.name.contains("Sampled")),
+            "got names: {:?}",
+            ds.channels.iter().map(|c| &c.display_name).collect::<Vec<_>>()
+        );
+        assert!(
+            ds.x.iter().any(|x| *x > 9.0e8),
+            "X should be unix seconds, got {:?}",
+            ds.x.iter().take(3).cloned().collect::<Vec<_>>()
+        );
+        for ch in &ds.channels {
+            let finite = ds.columns[ch.column_index]
+                .iter()
+                .filter(|y| y.is_finite())
+                .count();
+            assert!(finite > 0, "channel {} has no finite samples", ch.display_name);
+        }
     }
 }

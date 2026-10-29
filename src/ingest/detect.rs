@@ -89,11 +89,12 @@ fn role_for_header_row(cells: &[String], row_idx: usize, data_width: usize) -> H
         return HeaderRole::DType;
     }
     // Short meta / title rows (OTSG2: "Test 01" / "Operator:") — not channel names.
+    // Must be sparse vs data width: a full-width 2–3 col header (wind_laurel) is Names.
     let filled = nonempty_count(cells);
-    if filled <= 3 && cells.len() + 2 < data_width {
+    if filled <= 3 && filled + 2 < data_width {
         return HeaderRole::Title;
     }
-    if row_idx == 0 && filled <= 3 {
+    if row_idx == 0 && filled <= 3 && filled < data_width {
         return HeaderRole::Title;
     }
     // Wide identifier rows (instrument tags) are Names even without a "Sensor" label.
@@ -450,5 +451,33 @@ mod tests {
     fn sniff_comma() {
         let s = "a,b,c\n1,2,3\n";
         assert_eq!(sniff_delimiter(s), b',');
+    }
+
+    #[test]
+    fn wind_laurel_header_is_names_not_title() {
+        let table = RawTable {
+            rows: vec![
+                vec![
+                    "10 Min Std Dev".into(),
+                    "Time".into(),
+                    "10 Min Sampled Avg".into(),
+                ],
+                vec!["2.73".into(), "2001-06-11 11:00".into(), "22.3".into()],
+                vec!["1.98".into(), "2001-06-11 11:10".into(), "23".into()],
+            ],
+        };
+        let plan = detect_parse_plan(&table);
+        assert_eq!(plan.data_start_row, 1);
+        assert!(
+            plan.roles.first() == Some(&HeaderRole::Names),
+            "roles={:?}",
+            plan.roles
+        );
+        assert_eq!(plan.x_axis.column_index, Some(1));
+        assert!(
+            matches!(plan.x_axis.mode, XMode::Time),
+            "expected Time, got {:?}",
+            plan.x_axis
+        );
     }
 }
