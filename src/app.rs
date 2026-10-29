@@ -972,8 +972,8 @@ impl eframe::App for CsvBenchApp {
                 .max_height(260.0)
                 .frame(dock_frame());
             let resp = panel.show(ctx, |ui| {
-                for (i, pane) in bottom_visible.iter().enumerate() {
-                    self.dock_section(ui, DockColumn::Bottom, i, *pane);
+                for pane in &bottom_visible {
+                    self.dock_section(ui, DockColumn::Bottom, *pane, false);
                 }
                 if bottom_visible.is_empty() {
                     ui.weak("Drop here for bottom strip");
@@ -1011,15 +1011,7 @@ impl eframe::App for CsvBenchApp {
                 .show(ctx, |ui| {
                     // Cap content so selection chrome / row widgets cannot force the column wider
                     ui.set_max_width(ui.available_width());
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            for (i, pane) in left_visible.iter().enumerate() {
-                                self.dock_section(ui, DockColumn::Left, i, *pane);
-                            }
-                            ui.add_space(4.0);
-                            ui.small("drag titles · drop top/bottom to stack");
-                        });
+                    self.render_dock_column(ui, DockColumn::Left, &left_visible);
                 });
             // Full-height column accepts drag; Y decides stack above / below
             self.dock_hits.push(DockHit {
@@ -1046,15 +1038,7 @@ impl eframe::App for CsvBenchApp {
                 .min_width(160.0)
                 .frame(dock_frame())
                 .show(ctx, |ui| {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            for (i, pane) in right_visible.iter().enumerate() {
-                                self.dock_section(ui, DockColumn::Right, i, *pane);
-                            }
-                            ui.add_space(4.0);
-                            ui.small("drag titles · drop top/bottom to stack");
-                        });
+                    self.render_dock_column(ui, DockColumn::Right, &right_visible);
                 });
             self.dock_hits.push(DockHit {
                 kind: DockHitKind::ColumnBody {
@@ -1172,12 +1156,72 @@ impl CsvBenchApp {
         }
     }
 
+    /// Stack dock panes in a side column.
+    /// When Channels is present: no outer column scroll — Channels fills leftover height
+    /// and scrolls internally; other panes keep natural height (avoids dual scrollbars).
+    fn render_dock_column(&mut self, ui: &mut egui::Ui, col: DockColumn, panes: &[DockPane]) {
+        ui.set_width(ui.available_width());
+        let channels_at = panes.iter().position(|p| *p == DockPane::Channels);
+        if let Some(ch_i) = channels_at {
+            let avail = ui.available_size();
+            ui.allocate_ui_with_layout(
+                avail,
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(ui.available_width());
+                    // Bottom stack first (hint + panes below Channels), then fill above
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.small("drag titles · drop top/bottom to stack");
+                        ui.add_space(4.0);
+                        for pane in panes[ch_i + 1..].iter().rev() {
+                            self.dock_section(ui, col, *pane, false);
+                        }
+                        let rem = ui.available_size();
+                        ui.allocate_ui_with_layout(
+                            rem,
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(ui.available_width());
+                                for pane in &panes[..ch_i] {
+                                    self.dock_section(ui, col, *pane, false);
+                                }
+                                let ch_size = egui::vec2(
+                                    ui.available_width(),
+                                    ui.available_height().max(72.0),
+                                );
+                                ui.allocate_ui_with_layout(
+                                    ch_size,
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        self.dock_section(ui, col, DockPane::Channels, true);
+                                    },
+                                );
+                            },
+                        );
+                    });
+                },
+            );
+        } else {
+            // No Channels fill pane — outer scroll for tall Info/Saved/Files stacks
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for pane in panes {
+                        self.dock_section(ui, col, *pane, false);
+                    }
+                    ui.add_space(4.0);
+                    ui.small("drag titles · drop top/bottom to stack");
+                });
+        }
+    }
+
     fn dock_section(
         &mut self,
         ui: &mut egui::Ui,
         _col: DockColumn,
-        _index: usize,
         pane: DockPane,
+        fill: bool,
     ) {
         let frame = egui::Frame::none()
             .stroke(egui::Stroke::new(
@@ -1187,7 +1231,7 @@ impl CsvBenchApp {
             .inner_margin(egui::Margin::same(6.0))
             .rounding(4.0);
 
-        frame.show(ui, |ui| {
+        let body = |ui: &mut egui::Ui, app: &mut Self| {
             // Draggable title — rearrange via DnD (no chevron move buttons)
             ui.horizontal(|ui| {
                 let id = egui::Id::new(("dock_hdr", pane));
@@ -1234,14 +1278,27 @@ impl CsvBenchApp {
 
             ui.add_space(4.0);
             match pane {
-                DockPane::Files => self.files_pane(ui),
-                DockPane::Channels => self.channels_pane(ui),
-                DockPane::Info => self.info_pane(ui),
-                DockPane::Saved => self.saved_pane(ui),
-                DockPane::Table => self.table_pane(ui),
+                DockPane::Files => app.files_pane(ui),
+                DockPane::Channels => app.channels_pane(ui),
+                DockPane::Info => app.info_pane(ui),
+                DockPane::Saved => app.saved_pane(ui),
+                DockPane::Table => app.table_pane(ui),
             };
-        });
-        ui.add_space(6.0);
+        };
+
+        if fill {
+            let size = ui.available_size();
+            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_min_height(size.y);
+                frame.show(ui, |ui| {
+                    ui.set_min_height(ui.available_height());
+                    body(ui, self);
+                });
+            });
+        } else {
+            frame.show(ui, |ui| body(ui, self));
+            ui.add_space(6.0);
+        }
     }
 
     /// Recursively render nested Rows/Cols tile tree (L-shapes stay nested).
@@ -1553,7 +1610,9 @@ impl CsvBenchApp {
                             load_demo = true;
                         }
                     });
-                if ui.button("Open…").on_hover_text("Open CSV / TSV / XLSX / Parquet (Ctrl+O)").clicked()
+                if files_open_button(ui)
+                    .on_hover_text("Open CSV / TSV / XLSX / Parquet (Ctrl+O)")
+                    .clicked()
                 {
                     open_clicked = true;
                 }
@@ -1632,10 +1691,8 @@ impl CsvBenchApp {
             .column(Column::remainder().clip(true).at_least(48.0)) // Name
             .column(Column::auto().at_least(32.0)) // Rows
             .header(header_h, |mut header| {
-                header.col(|ui| {
-                    paint_follow_glyph(ui)
-                        .on_hover_text("Show channels in Channels list");
-                });
+                // Blank over row Follow/visibility checkboxes (header glyph did nothing)
+                header.col(|_ui| {});
                 header.col(|_ui| {});
                 header.col(|ui| {
                     ui.small(egui::RichText::new("File").strong());
@@ -1911,10 +1968,10 @@ impl CsvBenchApp {
         let shift_held = modifiers.shift;
         let ctrl_held = modifiers.command || modifiers.ctrl;
 
+        // Fill leftover dock height; scroll only inside this list (no outer column scroll)
         let list_resp = egui::ScrollArea::vertical()
             .id_salt("channels_list")
-            .auto_shrink([false, true])
-            .max_height(ui.available_height().max(120.0))
+            .auto_shrink([false, false])
             .show(ui, |ui| {
                 // Pack rows tightly — less vertical whitespace between channels
                 ui.spacing_mut().item_spacing.y = 0.0;
@@ -3715,26 +3772,95 @@ fn paint_chart_glyph(ui: &mut egui::Ui) {
     }
 }
 
-/// Follow / channels-visible column header — painted check (no font tofu □).
-fn paint_follow_glyph(ui: &mut egui::Ui) -> egui::Response {
-    let size = egui::vec2(12.0, 12.0);
-    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let ink = egui::Color32::from_rgb(180, 165, 210);
-    let stroke = egui::Stroke::new(1.5_f32, ink);
-    let painter = ui.painter();
-    // Small rounded box
-    painter.rect_stroke(
-        rect.shrink(0.5),
-        egui::Rounding::same(2.0),
-        egui::Stroke::new(1.0_f32, ink.gamma_multiply(0.75)),
+/// Files panel Open… control — painted folder + “Open…” (matches chart tool icons).
+fn files_open_button(ui: &mut egui::Ui) -> egui::Response {
+    let text = "Open…";
+    let galley = ui.fonts(|f| {
+        f.layout_no_wrap(
+            text.to_owned(),
+            egui::FontId::proportional(13.0),
+            egui::Color32::PLACEHOLDER,
+        )
+    });
+    let pad = ui.spacing().button_padding;
+    let icon = 14.0_f32;
+    let gap = 5.0_f32;
+    let size = egui::vec2(
+        pad.x * 2.0 + icon + gap + galley.size().x,
+        (pad.y * 2.0 + galley.size().y.max(icon)).max(22.0),
     );
-    // Check mark
-    let a = egui::pos2(rect.left() + 2.5, rect.center().y + 0.5);
-    let b = egui::pos2(rect.center().x - 0.5, rect.bottom() - 2.5);
-    let c = egui::pos2(rect.right() - 2.0, rect.top() + 2.5);
-    painter.line_segment([a, b], stroke);
-    painter.line_segment([b, c], stroke);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let visuals = ui.style().interact(&resp);
+    let fill = if resp.hovered() {
+        egui::Color32::from_rgb(56, 48, 88)
+    } else {
+        visuals.weak_bg_fill
+    };
+    let painter = ui.painter();
+    let rounding = egui::Rounding::same(4.0);
+    painter.rect_filled(rect, rounding, fill);
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(130, 100, 180)),
+    );
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + pad.x, rect.center().y - icon * 0.5),
+        egui::vec2(icon, icon),
+    );
+    paint_open_file_in(painter, icon_rect);
+    let text_pos = egui::pos2(
+        icon_rect.right() + gap,
+        rect.center().y - galley.size().y * 0.5,
+    );
+    painter.galley(
+        text_pos,
+        galley,
+        egui::Color32::from_rgb(235, 225, 255),
+    );
     resp
+}
+
+/// Open-folder glyph (document flap + body) for Files → Open.
+fn paint_open_file_in(painter: &egui::Painter, rect: egui::Rect) {
+    let ink = egui::Color32::from_rgb(220, 205, 245);
+    let stroke = egui::Stroke::new(1.3_f32, ink);
+    // Folder body
+    let body = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 1.0, rect.top() + 4.0),
+        egui::pos2(rect.right() - 1.0, rect.bottom() - 1.0),
+    );
+    painter.rect_stroke(body, egui::Rounding::same(1.5), stroke);
+    // Tab
+    painter.line_segment(
+        [
+            egui::pos2(body.left(), body.top()),
+            egui::pos2(body.left() + 2.0, rect.top() + 1.5),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(body.left() + 2.0, rect.top() + 1.5),
+            egui::pos2(body.left() + 6.5, rect.top() + 1.5),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            egui::pos2(body.left() + 6.5, rect.top() + 1.5),
+            egui::pos2(body.left() + 8.0, body.top()),
+        ],
+        stroke,
+    );
+    // Open flap (slanted top edge inside body)
+    painter.line_segment(
+        [
+            egui::pos2(body.left() + 1.0, body.top() + 3.0),
+            egui::pos2(body.right() - 1.0, body.top() + 1.0),
+        ],
+        stroke,
+    );
 }
 
 /// Compact red × for Files close column (font-independent).

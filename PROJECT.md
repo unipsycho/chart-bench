@@ -4,10 +4,6 @@
 **Version:** 0.8.0  
 **License:** MIT OR Apache-2.0
 
-## Distribution
-
-**OSS only.** There is no Pro / paid tier for csv-bench. Planning docs may retain technical competitor notes; open-core / Pro SKU pitches are out of scope.
-
 ## Build / run
 
 ```bash

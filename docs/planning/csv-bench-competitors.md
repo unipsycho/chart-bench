@@ -1,9 +1,8 @@
 # csv-bench — competitor notes (technical)
 
-**Status:** OSS-only product (v0.8). No Pro / paid tier.  
 **Related:** [competitive-csv-graphing-survey.md](competitive-csv-graphing-survey.md) (feature-fit matrix and full dossiers).
 
-This file keeps a short lens for differentiation. Pricing / open-core SKU work was explored historically and **is not product direction**.
+Short differentiation lens vs nearby dump / timeseries tools.
 
 ## Lens (what “win” means)
 

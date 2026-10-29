@@ -4,8 +4,6 @@ Desktop workbench for **CSV / XLS(X) / (soon) Parquet** graphing — **100% Rust
 
 Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart layouts, session autosave, and Follow mode for growing files.
 
-**OSS only** (v0.8) — no Pro / paid tier. Dual-licensed MIT OR Apache-2.0.
-
 ## Build / run
 
 Requires a recent Rust toolchain (edition 2021, rust-version 1.74+).
