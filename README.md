@@ -6,9 +6,9 @@ Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart la
 
 ## Screenshots
 
-![OTSG2 temperature trend in csv-bench](docs/screenshots/csv-bench-otsg2-chart.png)
+![OTSG2 process log in csv-bench](docs/screenshots/csv-bench-otsg2-chart.png)
 
-*OTSG2 process trend — Save PNG of the full plot (axes, scales, legend).*
+*OTSG2 process log — Files / Channels sidebar, Chart 1, and status bar.*
 
 ![csv-bench UI on M17](docs/screenshots/csv-bench-m17-ui.png)
 
