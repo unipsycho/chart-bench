@@ -1,6 +1,7 @@
 # Excel samples
 
-Generated from CSV counterparts via `scripts/csv_to_xlsx.py` (openpyxl).
+Committed fixtures only — no generator scripts in this repo (keeps GitHub language
+stats Rust). Files were built from CSV counterparts with openpyxl-style workbooks.
 
 | File | Sheets |
 |------|--------|
@@ -9,10 +10,7 @@ Generated from CSV counterparts via `scripts/csv_to_xlsx.py` (openpyxl).
 
 Opening an `.xlsx` in csv-bench loads **every non-empty sheet** as its own dataset named `file.xlsx :: SheetName`.
 
-```bash
-uv run --with openpyxl scripts/csv_to_xlsx.py \
-  --sheet Seattle=samples/seattle_weather.csv \
-  --sheet Vega=samples/weather_vega.csv \
-  --sheet Temps=samples/temps_daily_min.csv \
-  -o samples/excel/weather_combo.xlsx
-```
+To rebuild locally (optional, not shipped): create workbooks from the CSVs under
+`samples/` — `seattle_weather.csv` → `seattle_weather.xlsx`; and a multi-sheet
+`weather_combo.xlsx` with `Seattle` ← `seattle_weather.csv`, `Vega` ←
+`weather_vega.csv`, `Temps` ← `temps_daily_min.csv`.

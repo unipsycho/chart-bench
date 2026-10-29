@@ -1,8 +1,9 @@
 # Parquet samples
 
-Generated from CSV counterparts via `scripts/csv_to_parquet.py` (pyarrow).
-Default compression is **SNAPPY**; csv-bench also loads **UNCOMPRESSED**
-(`--uncompressed`). Other codecs (gzip / zstd / …) are rejected with a clear error.
+Committed fixtures only — no generator scripts in this repo (keeps GitHub language
+stats Rust). Files were built from the CSV counterparts with **SNAPPY** compression
+(csv-bench also loads **UNCOMPRESSED**). Other codecs (gzip / zstd / …) are rejected
+with a clear error.
 
 | File | Source CSV |
 |------|------------|
@@ -13,9 +14,6 @@ Default compression is **SNAPPY**; csv-bench also loads **UNCOMPRESSED**
 | `wind_laurel.parquet` | `../wind_laurel.csv` |
 | `stocks_apple_2014.parquet` | `../stocks_apple_2014.csv` |
 
-```bash
-uv run --with pyarrow scripts/csv_to_parquet.py \
-  samples/seattle_weather.csv samples/tips_restaurant.csv samples/iris.csv \
-  samples/timeseries_abc.csv samples/wind_laurel.csv samples/stocks_apple_2014.csv \
-  -o samples/parquet/
-```
+To rebuild locally (optional, not shipped): with [pyarrow](https://arrow.apache.org/docs/python/)
+installed, read each CSV and write Parquet with `compression="snappy"` (or
+`"none"` for UNCOMPRESSED) into this folder, matching the table names above.

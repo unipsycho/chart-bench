@@ -2894,9 +2894,9 @@ impl CsvBenchApp {
         let mut cursor_x: Option<f64> = None;
         let mut cursor_screen: Option<egui::Pos2> = None;
 
-        // Luminance contrast: light plot bg → dark grid/scale ink; dark bg → quiet light ink.
+        // Luminance contrast: light plot bg → faded dark grid/scale ink; dark → quiet light.
         // Custom crosshair + per-series Y (disable default single x/y tip to avoid clutter).
-        // Plot fill comes from extreme_bg_color — set from Options background.
+        // with_plot_contrast fills axes + plot chrome from Options background.
         let bg = draw.background;
         // Full plot widget (axes + plot) for Save PNG — response.rect is data-only.
         let full_plot_widget = egui::Rect::from_min_size(

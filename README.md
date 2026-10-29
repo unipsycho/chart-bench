@@ -14,7 +14,7 @@ Chart toolbar (Options · Save PNG · Export CSV · …) and nested tile layouts
 |---|---|
 | ![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png) | ![Nested tiles](docs/screenshots/csv-bench-nested-tiles.png) |
 
-Save PNG captures the full plot widget (axes + scales). Grid and tick ink follow chart background luminance — dark ink on light fills, quiet light ink on dark fills.
+Save PNG captures the full plot widget (axes + scales). Chart background color fills the plot and axis chrome; grid and tick ink follow luminance — faded dark ink on light fills, quiet light ink on dark fills.
 
 ## Build / run
 
