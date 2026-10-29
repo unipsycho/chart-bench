@@ -8,6 +8,9 @@ Examples:
   uv run --with pyarrow scripts/csv_to_parquet.py \\
       samples/tips_restaurant.csv samples/iris.csv \\
       -o samples/parquet/
+
+Compression defaults to SNAPPY (csv-bench reads UNCOMPRESSED + SNAPPY).
+Pass --uncompressed for UNCOMPRESSED pages.
 """
 from __future__ import annotations
 
@@ -27,13 +30,13 @@ def _require_pyarrow():
         ) from e
 
 
-def csv_to_parquet(csv_path: Path, out_path: Path) -> None:
+def csv_to_parquet(csv_path: Path, out_path: Path, compression: str) -> None:
     import pyarrow.csv as pacsv
     import pyarrow.parquet as pq
 
     table = pacsv.read_csv(csv_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(table, out_path)
+    pq.write_table(table, out_path, compression=compression)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,7 +51,13 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Output .parquet file, or a directory when converting multiple CSVs",
     )
+    p.add_argument(
+        "--uncompressed",
+        action="store_true",
+        help="Write UNCOMPRESSED pages (default: SNAPPY)",
+    )
     args = p.parse_args(argv)
+    compression = "NONE" if args.uncompressed else "SNAPPY"
 
     csvs: list[Path] = list(args.csv)
     for path in csvs:
@@ -57,18 +66,17 @@ def main(argv: list[str] | None = None) -> int:
 
     out = args.output
     if len(csvs) == 1 and out.suffix.lower() == ".parquet":
-        csv_to_parquet(csvs[0], out)
-        print(f"wrote {out}")
+        csv_to_parquet(csvs[0], out, compression)
+        print(f"wrote {out} ({compression})")
         return 0
 
-    # Directory mode (multi CSV or -o without .parquet)
     if out.suffix.lower() == ".parquet" and len(csvs) > 1:
         raise SystemExit("with multiple CSVs, -o must be a directory")
     out.mkdir(parents=True, exist_ok=True)
     for csv_path in csvs:
         dest = out / f"{csv_path.stem}.parquet"
-        csv_to_parquet(csv_path, dest)
-        print(f"wrote {dest}")
+        csv_to_parquet(csv_path, dest, compression)
+        print(f"wrote {dest} ({compression})")
     return 0
 
 

@@ -24,6 +24,19 @@ pub fn load_csv_path(path: &Path) -> anyhow::Result<Dataset> {
     build_dataset(path, table, plan, text.len() as u64)
 }
 
+/// Build a Dataset from an already-materialized string table (Parquet → cells, etc.).
+pub(crate) fn dataset_from_raw_table(
+    path: &Path,
+    table: RawTable,
+    last_offset: u64,
+) -> anyhow::Result<Dataset> {
+    if table.rows.is_empty() {
+        anyhow::bail!("no rows: {}", path.display());
+    }
+    let plan = detect_parse_plan(&table);
+    build_dataset(path, table, plan, last_offset)
+}
+
 pub fn append_csv_growth(ds: &mut Dataset) -> anyhow::Result<usize> {
     let mut file = File::open(&ds.path)?;
     let meta = file.metadata()?;

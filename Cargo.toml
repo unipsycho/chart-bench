@@ -29,6 +29,8 @@ anyhow = "=1.0.80"
 uuid = { version = "=1.7.0", features = ["v4", "serde"] }
 parking_lot = "=0.12.1"
 calamine = "=0.24.0"
+# Lightweight Parquet (no Arrow). Codecs: UNCOMPRESSED + SNAPPY only.
+parquet = { version = "=53.0.0", default-features = false, features = ["snap"] }
 # Match eframe/egui-winit; used to force X11 so OS file drops work (winit Wayland has no DroppedFile).
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11"] }
 
