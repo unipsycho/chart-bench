@@ -59,8 +59,6 @@ tar -xzf chart-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz
 ./chart-bench
 ```
 
-> Published **GitHub** v0.8.0 assets may still use pre-rename `csv-bench-*` filenames until the next package upload; binaries and new builds are `chart-bench`.
-
 ## Build / run
 
 Requires a recent Rust toolchain (edition 2021, rust-version 1.74+).
