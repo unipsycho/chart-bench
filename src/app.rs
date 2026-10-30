@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use crate::ingest::{
     append_csv_growth, load_csv_path, load_mat_path, load_mdf_path, load_parquet_path,
-    load_sqlite_path, load_witsml_path, load_xlsx_workbook,
+    load_parquet_path_with_progress, load_sqlite_path, load_witsml_path, load_xlsx_workbook,
+    MAX_PARQUET_FILE_BYTES,
 };
 use crate::model::{
     binding, load_presets, load_session, resolve_channel_id, save_presets, save_session,
@@ -59,8 +60,11 @@ pub struct ChartBenchApp {
     plot_rects: HashMap<Uuid, egui::Rect>,
     /// After Save PNG: wait for ViewportCommand::Screenshot reply.
     pending_png: Option<PendingPngExport>,
-    /// Chart ids that should snap plot X back to auto-fit (new series / file load).
+    /// Chart ids that should snap plot X/Y on next first data view (empty → series/preview).
+    /// Cleared after one auto-fit so a later manual zoom is kept when adding more series.
     reset_plot_auto: HashSet<Uuid>,
+    /// Background Parquet open (full-row load) — progress + result on the UI thread.
+    pending_parquet: Option<PendingParquetLoad>,
     pub status: String,
     pub last_save: Instant,
     pub presets: PresetLibrary,
@@ -98,6 +102,7 @@ impl Default for ChartBenchApp {
             plot_rects: HashMap::new(),
             pending_png: None,
             reset_plot_auto: HashSet::new(),
+            pending_parquet: None,
             status: "Open a CSV / XLSX or load the demo sample.".into(),
             last_save: Instant::now(),
             presets: load_presets(),
@@ -114,8 +119,31 @@ impl Default for ChartBenchApp {
         app.ui.dock.normalize();
         app.ensure_chart_tree();
         app.active_chart = app.active_chart.min(app.charts.len().saturating_sub(1));
+        // Empty charts need one auto-fit when the first series / hover preview appears.
+        for c in &app.charts {
+            if c.series.is_empty() {
+                app.reset_plot_auto.insert(c.id);
+            }
+        }
         app
     }
+}
+
+/// Messages from a background Parquet full-row load.
+enum ParquetLoadMsg {
+    Progress {
+        rg_done: usize,
+        rg_total: usize,
+        rows: usize,
+        rows_total: usize,
+    },
+    Done(Result<Dataset, String>),
+}
+
+struct PendingParquetLoad {
+    path_display: String,
+    started: Instant,
+    rx: Receiver<ParquetLoadMsg>,
 }
 
 impl ChartBenchApp {
@@ -145,7 +173,8 @@ impl ChartBenchApp {
         self.recent_files = sess.recent_files;
         let mut restore_errs: Vec<String> = Vec::new();
         for f in sess.files {
-            match self.open_path(PathBuf::from(&f.path)) {
+            // Blocking Parquet so channel remap below sees datasets immediately.
+            match self.open_path_ex(PathBuf::from(&f.path), false) {
                 Ok(()) => {
                     if let Some(ds) = self.datasets.last_mut() {
                         ds.follow = f.follow;
@@ -280,6 +309,12 @@ impl ChartBenchApp {
     }
 
     fn open_path(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        // Interactive opens: Parquet loads in the background with status progress.
+        self.open_path_ex(path, true)
+    }
+
+    /// `parquet_async`: background full-row load + progress (UI). `false` for session/preset restore.
+    fn open_path_ex(&mut self, path: PathBuf, parquet_async: bool) -> anyhow::Result<()> {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
@@ -297,10 +332,31 @@ impl ChartBenchApp {
             return self.push_multi_datasets(path, sheets, "sheets");
         }
         let ds = match ext.as_str() {
-            "parquet" | "pq" => load_parquet_path(&path)?,
+            "parquet" | "pq" => {
+                if parquet_async {
+                    self.start_parquet_load(path)?;
+                    return Ok(());
+                }
+                // Size check before a long blocking restore load.
+                let meta_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                if meta_len > MAX_PARQUET_FILE_BYTES {
+                    anyhow::bail!(
+                        "Parquet file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
+                        meta_len as f64 / (1024.0 * 1024.0 * 1024.0),
+                        MAX_PARQUET_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
+                    );
+                }
+                load_parquet_path(&path)?
+            }
             "mat" => load_mat_path(&path)?,
             _ => load_csv_path(&path)?,
         };
+        self.finish_dataset_load(ds);
+        Ok(())
+    }
+
+    /// Push a finished dataset into the session (sync formats + Parquet background Done).
+    fn finish_dataset_load(&mut self, ds: Dataset) {
         self.status = format!(
             "Loaded {} — {} channels, {} records, X={:?}",
             ds.display_name,
@@ -311,7 +367,123 @@ impl ChartBenchApp {
         self.push_recent(&ds.path);
         self.selected_dataset = Some(ds.id);
         self.datasets.push(ds);
+    }
+
+    /// Refuse >10 GiB up front; stream full rows on a worker with status progress.
+    fn start_parquet_load(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        if self.pending_parquet.is_some() {
+            anyhow::bail!("Already loading a Parquet file — wait for it to finish.");
+        }
+        let meta_len = std::fs::metadata(&path)
+            .map(|m| m.len())
+            .map_err(|e| anyhow::anyhow!("stat {}: {e}", path.display()))?;
+        if meta_len > MAX_PARQUET_FILE_BYTES {
+            anyhow::bail!(
+                "Parquet file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
+                meta_len as f64 / (1024.0 * 1024.0 * 1024.0),
+                MAX_PARQUET_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+        }
+        let path_display = path.display().to_string();
+        let gib = meta_len as f64 / (1024.0 * 1024.0 * 1024.0);
+        self.status = if gib >= 0.05 {
+            format!("Loading {path_display} ({gib:.2} GiB)…")
+        } else {
+            format!("Loading {path_display}…")
+        };
+        let (tx, rx) = mpsc::channel();
+        let path_bg = path.clone();
+        std::thread::spawn(move || {
+            let mut last = Instant::now();
+            let result = load_parquet_path_with_progress(&path_bg, &mut |rg_done, rg_total, rows, rows_total| {
+                let due = last.elapsed() >= Duration::from_millis(150) || rg_done == rg_total;
+                if due {
+                    let _ = tx.send(ParquetLoadMsg::Progress {
+                        rg_done,
+                        rg_total,
+                        rows,
+                        rows_total,
+                    });
+                    last = Instant::now();
+                }
+            });
+            let _ = tx.send(ParquetLoadMsg::Done(
+                result.map_err(|e| e.to_string()),
+            ));
+        });
+        self.pending_parquet = Some(PendingParquetLoad {
+            path_display,
+            started: Instant::now(),
+            rx,
+        });
+        self.push_recent(&path.display().to_string());
         Ok(())
+    }
+
+    /// Drain background Parquet progress / completion (call each frame).
+    fn poll_parquet_load(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.pending_parquet.as_ref() else {
+            return;
+        };
+        let mut progress: Option<(usize, usize, usize, usize)> = None;
+        let mut done: Option<Result<Dataset, String>> = None;
+        while let Ok(msg) = pending.rx.try_recv() {
+            match msg {
+                ParquetLoadMsg::Progress {
+                    rg_done,
+                    rg_total,
+                    rows,
+                    rows_total,
+                } => progress = Some((rg_done, rg_total, rows, rows_total)),
+                ParquetLoadMsg::Done(r) => done = Some(r),
+            }
+        }
+        if let Some((rg_done, rg_total, rows, rows_total)) = progress {
+            let name = self
+                .pending_parquet
+                .as_ref()
+                .map(|p| p.path_display.clone())
+                .unwrap_or_default();
+            let pct = if rg_total > 0 {
+                (rg_done * 100) / rg_total
+            } else {
+                0
+            };
+            self.status = format!(
+                "Loading {name}… {pct}% ({} / {} rows, rg {rg_done}/{rg_total})",
+                fmt_status_count(rows),
+                fmt_status_count(rows_total)
+            );
+            ctx.request_repaint();
+        }
+        if let Some(result) = done {
+            let elapsed = self
+                .pending_parquet
+                .as_ref()
+                .map(|p| p.started.elapsed())
+                .unwrap_or_default();
+            self.pending_parquet = None;
+            match result {
+                Ok(ds) => {
+                    let rows = ds.record_count();
+                    let ch = ds.channels.len();
+                    let name = ds.display_name.clone();
+                    self.finish_dataset_load(ds);
+                    self.status = format!(
+                        "Loaded {name} — {ch} channels, {} records in {:.1}s",
+                        fmt_status_count(rows),
+                        elapsed.as_secs_f32()
+                    );
+                }
+                Err(e) => {
+                    self.status = format!("Open failed: {e}");
+                }
+            }
+            ctx.request_repaint();
+        } else if self.pending_parquet.is_some() {
+            // Keep the UI alive while the worker streams row groups.
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
     }
 
     /// Push several datasets from one file (XLSX sheets, SQLite tables, …).
@@ -458,14 +630,14 @@ impl ChartBenchApp {
         if chart.series.iter().any(|s| s.channel_id == channel_id) {
             return;
         }
+        // Do not re-arm auto-fit here — empty charts / clear / last-remove already mark
+        // reset_plot_auto. First L/R or hover preview consumes it once; later adds keep zoom.
         let idx = chart.series.len();
         let mut b = binding(channel_id, idx, axis);
         if let Some((path, name, col)) = meta {
             stamp_series_keys(&mut b, &path, &name, col);
         }
-        let chart_id = chart.id;
         chart.series.push(b);
-        self.reset_plot_auto.insert(chart_id);
         self.status = format!("Added series to {}", chart.title);
     }
 
@@ -477,6 +649,11 @@ impl ChartBenchApp {
         chart.series.retain(|s| s.channel_id != channel_id);
         if chart.series.len() < before {
             self.status = format!("Removed series from {}", chart.title);
+            // Back to empty → next L/R or hover preview should auto-fit again.
+            if chart.series.is_empty() {
+                let id = chart.id;
+                self.reset_plot_auto.insert(id);
+            }
         }
     }
 
@@ -720,7 +897,9 @@ impl ChartBenchApp {
     fn add_empty_chart(&mut self) {
         let title = self.next_unique_chart_title();
         let chart = ChartState::new(title);
+        let id = chart.id;
         self.charts.push(chart);
+        self.reset_plot_auto.insert(id);
         self.active_chart = self.charts.len() - 1;
         if self.charts.len() > 1 && self.ui.chart_layout == ChartLayout::Overlay {
             self.ui.chart_layout = ChartLayout::Stacked;
@@ -834,7 +1013,8 @@ impl ChartBenchApp {
         let mut open_errs: Vec<String> = Vec::new();
         for slot in &preset.slots {
             if let Some(path) = &slot.path {
-                match self.open_path(PathBuf::from(path)) {
+                // Blocking Parquet so series remap sees datasets in this call.
+                match self.open_path_ex(PathBuf::from(path), false) {
                     Ok(()) => opened += 1,
                     Err(e) => open_errs.push(format!("{path}: {e}")),
                 }
@@ -946,6 +1126,7 @@ struct PendingPngExport {
 impl eframe::App for ChartBenchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_follows();
+        self.poll_parquet_load(ctx);
         self.autosave();
         Self::apply_favnyr_theme(ctx);
         self.poll_png_export(ctx);
@@ -2678,6 +2859,8 @@ impl ChartBenchApp {
             {
                 if let Some(c) = self.charts.get_mut(idx) {
                     c.series.clear();
+                    let id = c.id;
+                    self.reset_plot_auto.insert(id);
                 }
             }
             if chart_tool_button(ui, false, ChartToolIcon::Duplicate)
@@ -3042,10 +3225,12 @@ impl ChartBenchApp {
                     ]);
                 }
             }
-            let force_auto = self.reset_plot_auto.remove(&chart.id);
+            // First view of data on an empty chart (L/R assign or hover preview) → fit X+Y once.
+            // After that, manual zoom is kept when adding more series / hovering others.
+            let showing_data = has_plot_data;
+            let force_auto = showing_data && self.reset_plot_auto.remove(&chart.id);
             let plot_resp = plot_l.show(ui, |plot_ui| {
                 if force_auto {
-                    // New L/R assign after empty-tile zoom must not keep a stale 0..1 X window.
                     plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
                 }
                 for (name, color, pts) in &overlay_series {
@@ -5004,6 +5189,19 @@ fn percent_decode_path(s: &str) -> String {
         i += 1;
     }
     out
+}
+
+/// Thousands separators for status-bar row counts.
+fn fmt_status_count(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
 }
 
 fn format_unix_hms(t: f64) -> String {
