@@ -4,7 +4,7 @@ Actionable list (titles from the former Project tracker; Cursor task IDs dropped
 
 ## Open
 
-- [ ] **SQLite ingest** — treat tables like multi-sheet XLSX; auto-detect timestamp columns; show those channels
+- [x] **SQLite / MATLAB / MF4 / WITSML ingest** — Open filters + `open_path`; SQLite tables as `file :: table`
 
 - [ ] Lock planning and todos into local chart-bench *(this lockdown — keep docs current)*
 - [ ] Confirm Preset vs Bookmark naming + slot / channel-mismatch UX

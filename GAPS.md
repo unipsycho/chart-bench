@@ -24,9 +24,11 @@ Living list of product / engineering gaps. Pair with `TODO.md` for action items.
 
 ## Data formats
 
-- **SQLite ingest (priority, not started):** load tables like multi-sheet XLSX; auto-detect timestamp columns; expose as channels.
-
 - **Parquet** — lightweight ingest shipped (`parquet` crate, no Arrow): **UNCOMPRESSED** + **SNAPPY** only; other codecs error clearly.
+- **MATLAB `.mat`** — Level-5 numeric vectors via `matfile` (time-like var → X, else index).
+- **MDF/MF4** — ASAM MF4 via `falcon_mdf` (channel groups → datasets). Classic MDF3 (`.mdf`) listed in Open filters but not covered by sample fixtures.
+- **WITSML** — wellLog XML mnemonics + `logData` rows via `quick-xml`.
+- **SQLite** — each time-series table opens as `file :: table` (same multi-sheet UX as XLSX).
 - Export formats beyond chart CSV / session — confirm PNG + workspace export UX.
 - Broader dialect / encoding edge cases beyond current sniffer (learn from qsv / CleverCSV / DuckDB / Polars).
 

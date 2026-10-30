@@ -149,6 +149,15 @@ pub fn parse_time_value(s: &str) -> Option<f64> {
         return Some(v);
     }
 
+    // Strip trailing Z / UTC designator so NaiveDateTime formats match ISO-8601.
+    let t = t
+        .strip_suffix('Z')
+        .or_else(|| t.strip_suffix('z'))
+        .unwrap_or(t)
+        .trim_end();
+    // Also accept "+00:00" / "-00:00" style offsets by chopping a trailing ±HH:MM.
+    let t = strip_numeric_tz_offset(t);
+
     const FMTS: &[&str] = &[
         "%Y-%m-%dT%H:%M:%S%.f",
         "%Y-%m-%dT%H:%M:%S",
@@ -177,6 +186,27 @@ pub fn parse_time_value(s: &str) -> Option<f64> {
         }
     }
     None
+}
+
+/// Chop a trailing `+HH:MM` / `-HH:MM` / `+HHMM` timezone suffix when present.
+fn strip_numeric_tz_offset(t: &str) -> &str {
+    // Look for the last + or - that looks like a TZ offset (after a time portion).
+    let bytes = t.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 {
+        i -= 1;
+        if bytes[i] == b'+' || (bytes[i] == b'-' && i > 10) {
+            let suf = &t[i + 1..];
+            // HH:MM or HHMM
+            if matches!(suf.len(), 4 | 5)
+                && suf.chars().all(|c| c.is_ascii_digit() || c == ':')
+            {
+                return t[..i].trim_end();
+            }
+            break;
+        }
+    }
+    t
 }
 
 /// Parse strings like `9:24:34.354 AM 2019-10-30` or `09:24:34 PM 2019-10-30`.
@@ -221,6 +251,10 @@ mod tests {
     fn parses_iso() {
         let v = parse_time_value("2024-10-01T08:00:00").unwrap();
         assert!(v > 1.0e9);
+        let z = parse_time_value("2024-06-01T12:00:00Z").unwrap();
+        assert!(z > 1.0e9);
+        let offset = parse_time_value("2024-06-01T12:00:00.000+00:00").unwrap();
+        assert!((offset - z).abs() < 1.0);
     }
 
     #[test]

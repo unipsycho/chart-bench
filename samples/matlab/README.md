@@ -10,4 +10,4 @@ for upcoming time-series ingest.
 | `motor_vibration.mat` | `time_s`, `accel_x_g`, `accel_y_g`, `accel_z_g`, `rpm` | ~5 s vibration / motor (500 samples) |
 
 Synthetic data generated with SciPy `savemat` (no MATLAB license required to read).
-Ingest for `.mat` is **not** wired in chart-bench yet — these exist for format probing.
+Ingest is wired in chart-bench (`open_path` + Open dialog filters).
