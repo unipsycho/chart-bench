@@ -1169,12 +1169,16 @@ impl CsvBenchApp {
             let title = self.charts[idx].title.clone();
             let vp_id = egui::ViewportId::from_hash_of(("chart_popout", id));
             let mut want_close = false;
+            let mut vp = egui::ViewportBuilder::default()
+                .with_title(format!("CSV Bench — {title}"))
+                .with_inner_size([960.0, 640.0])
+                .with_min_inner_size([420.0, 280.0]);
+            if let Some(icon) = load_window_icon() {
+                vp = vp.with_icon(icon);
+            }
             ctx.show_viewport_immediate(
                 vp_id,
-                egui::ViewportBuilder::default()
-                    .with_title(format!("CSV Bench — {title}"))
-                    .with_inner_size([960.0, 640.0])
-                    .with_min_inner_size([420.0, 280.0]),
+                vp,
                 |ctx, class| {
                     if ctx.input(|i| i.viewport().close_requested()) {
                         want_close = true;
@@ -2912,12 +2916,14 @@ impl CsvBenchApp {
                 plot_l = plot_l.link_axis(egui::Id::new("csv_bench_shared_x"), true, false);
             }
             plot_l = plot_l
-                // No hover/wheel/edge axis pan — wheel zooms via apply_wheel_zoom_clamped; drag pans.
+                // No hover/wheel/edge axis pan — wheel zooms X via apply_wheel_zoom_x_clamped; drag pans X.
+                // Y stays locked auto (fit visible series); do not drag/zoom Y.
                 .allow_scroll(false)
-                .allow_drag(true)
-                .allow_zoom(false) // custom wheel zoom with fit-all floor
+                .allow_drag(egui::Vec2b::new(true, false))
+                .allow_zoom(false) // custom wheel zoom: X only, fit-all floor
                 .allow_boxed_zoom(false)
                 .allow_double_click_reset(true)
+                .auto_bounds(egui::Vec2b::new(true, true))
                 .show_background(true)
                 .show_grid(draw.show_grid)
                 .show_x(false)
@@ -2988,7 +2994,8 @@ impl CsvBenchApp {
                     fit_src.push(&preview_owned);
                 }
                 let fit = fit_bounds_for_series(&fit_src);
-                apply_wheel_zoom_clamped(plot_ui, fit);
+                // Wheel zooms X only; Y always fits series in the visible X window.
+                apply_wheel_zoom_x_and_locked_auto_y(plot_ui, fit.as_ref(), &fit_src);
 
                 // Sample series at pointer X — do NOT add VLine/HLine plot items (they
                 // merge into auto_bounds and pan/zoom the axes while hovering, esp. empty plots).
@@ -4594,73 +4601,91 @@ fn ensure_unique_chart_titles(charts: &mut [ChartState]) {
     }
 }
 
-/// Wheel zoom; never zoom out past fit-all. Zoom-out at the limit is a no-op.
+/// Wheel / pinch zooms **X only** (never past fit-all); Y always fits points in that X window.
 /// Plain scroll-over-plot zooms (does not pan — Plot.allow_scroll is off).
-fn apply_wheel_zoom_clamped(plot_ui: &mut PlotUi, fit: Option<PlotBounds>) {
-    if !plot_ui.response().contains_pointer() {
+fn apply_wheel_zoom_x_and_locked_auto_y(
+    plot_ui: &mut PlotUi,
+    fit: Option<&PlotBounds>,
+    series: &[&(String, [u8; 3], Vec<[f64; 2]>)],
+) {
+    // Double-click reset sets auto bounds before our Set mods — don't fight it.
+    if plot_ui.response().double_clicked() {
         return;
     }
-    let (mut zoom, scroll) = plot_ui.ctx().input(|i| (i.zoom_delta_2d(), i.smooth_scroll_delta));
-    // Ctrl/Cmd-scroll → zoom_delta; plain wheel → scroll_delta. Map plain wheel to zoom.
-    if zoom == egui::Vec2::splat(1.0) && scroll != egui::Vec2::ZERO {
-        // Match egui scroll_zoom_speed default (~0.01): positive scroll.y zooms in.
-        let factor = (0.01_f32 * scroll.y).exp();
-        if (factor - 1.0).abs() > 1e-6 {
-            zoom = egui::Vec2::splat(factor);
+
+    let mut bounds = plot_ui.plot_bounds();
+    let mut x_auto = plot_ui.auto_bounds().x;
+
+    // --- X-only wheel / pinch ---
+    if plot_ui.response().contains_pointer() {
+        let (mut zoom, scroll) =
+            plot_ui.ctx().input(|i| (i.zoom_delta_2d(), i.smooth_scroll_delta));
+        // Ctrl/Cmd-scroll → zoom_delta; plain wheel → scroll_delta. Map plain wheel to zoom.
+        if zoom == egui::Vec2::splat(1.0) && scroll != egui::Vec2::ZERO {
+            // Match egui scroll_zoom_speed default (~0.01): positive scroll.y zooms in.
+            let factor = (0.01_f32 * scroll.y).exp();
+            if (factor - 1.0).abs() > 1e-6 {
+                zoom = egui::vec2(factor, 1.0);
+            }
+        }
+        // Force X-only: ignore any Y component from pinch / trackpad.
+        zoom.y = 1.0;
+        if (zoom.x - 1.0).abs() > 1e-6 {
+            if let Some(fit) = fit {
+                let at_fit_x = bounds.width() >= fit.width() * 0.995;
+                if zoom.x < 0.999 && at_fit_x {
+                    // Zooming out at floor — stay / return to full auto.
+                    plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
+                    return;
+                }
+                if let Some(center) = plot_ui.pointer_coordinate() {
+                    bounds.zoom(zoom, center);
+                    if bounds.width() >= fit.width() * 0.995 {
+                        plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
+                        return;
+                    }
+                    x_auto = false;
+                }
+            } else {
+                plot_ui.zoom_bounds_around_hovered(zoom);
+                return;
+            }
         }
     }
-    if zoom == egui::Vec2::splat(1.0) {
-        return;
-    }
-    let Some(fit) = fit else {
-        plot_ui.zoom_bounds_around_hovered(zoom);
-        return;
-    };
-    let cur = plot_ui.plot_bounds();
-    let Some(center) = plot_ui.pointer_coordinate() else {
-        return;
-    };
 
-    let zooming_out_x = zoom.x < 0.999;
-    let zooming_out_y = zoom.y < 0.999;
-    let at_fit_x = cur.width() >= fit.width() * 0.995;
-    let at_fit_y = cur.height() >= fit.height() * 0.995;
-
-    // Already at fit-all: zooming out is a no-op (stay on auto bounds).
-    if (zooming_out_x && at_fit_x) && (zooming_out_y && at_fit_y) {
-        plot_ui.set_auto_bounds(true.into());
-        return;
-    }
-    if zooming_out_x && at_fit_x && zoom.y == 1.0 {
-        plot_ui.set_auto_bounds(egui::Vec2b::new(true, plot_ui.auto_bounds().y));
-        return;
-    }
-    if zooming_out_y && at_fit_y && zoom.x == 1.0 {
-        plot_ui.set_auto_bounds(egui::Vec2b::new(plot_ui.auto_bounds().x, true));
+    // Full auto X → egui fits both axes to the full series (Y ≡ visible when X is fit-all).
+    if x_auto {
         return;
     }
 
-    let mut proposed = cur;
-    proposed.zoom(zoom, center);
-
-    let mut auto = egui::Vec2b::FALSE;
-    if proposed.width() >= fit.width() * 0.995 {
-        proposed.set_x(&fit);
-        auto.x = true;
-    }
-    if proposed.height() >= fit.height() * 0.995 {
-        proposed.set_y(&fit);
-        auto.y = true;
-    }
-
-    if auto.x && auto.y {
-        plot_ui.set_auto_bounds(true.into());
-    } else {
-        plot_ui.set_plot_bounds(proposed);
-        if auto.any() {
-            plot_ui.set_auto_bounds(auto);
+    // Locked auto Y: fit Y to series points inside the (possibly just-zoomed) X window.
+    let x0 = bounds.min()[0];
+    let x1 = bounds.max()[0];
+    let mut y_min = f64::INFINITY;
+    let mut y_max = f64::NEG_INFINITY;
+    for (_, _, pts) in series {
+        for p in pts {
+            let (x, y) = (p[0], p[1]);
+            if !x.is_finite() || !y.is_finite() {
+                continue;
+            }
+            if x < x0 || x > x1 {
+                continue;
+            }
+            y_min = y_min.min(y);
+            y_max = y_max.max(y);
         }
     }
+    if y_min.is_finite() && y_max.is_finite() {
+        if (y_max - y_min).abs() < 1e-12 {
+            y_min -= 1.0;
+            y_max += 1.0;
+        }
+        let mut y_fit = PlotBounds::from_min_max([x0, y_min], [x1, y_max]);
+        y_fit.add_relative_margin_y(egui::vec2(0.05, 0.05));
+        bounds.set_y(&y_fit);
+    }
+    plot_ui.set_plot_bounds(bounds);
 }
 
 fn icon_toggle(ui: &mut egui::Ui, on: &mut bool, glyph: &str, tip: &str) {
@@ -4850,4 +4875,16 @@ fn nearest_y(pts: &[[f64; 2]], x: f64) -> Option<f64> {
         }
     }
     Some(best[1])
+}
+
+/// Window / taskbar icon — chart mark (same art as Windows PE `assets/icons/app.ico`).
+pub fn load_window_icon() -> Option<egui::IconData> {
+    let bytes = include_bytes!("../assets/icons/csv-bench-app-icon-256.png");
+    let img = image::load_from_memory(bytes).ok()?.into_rgba8();
+    let (width, height) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width,
+        height,
+    })
 }

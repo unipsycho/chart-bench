@@ -1,16 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use csv_bench::app::CsvBenchApp;
+use csv_bench::app::{load_window_icon, CsvBenchApp};
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1280.0, 800.0])
+        .with_min_inner_size([800.0, 500.0])
+        .with_title(format!("CSV Bench  {}", env!("CARGO_PKG_VERSION")))
+        // Required for OS file DnD (esp. Windows); harmless elsewhere.
+        .with_drag_and_drop(true);
+    if let Some(icon) = load_window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 500.0])
-            .with_title(format!("CSV Bench  {}", env!("CARGO_PKG_VERSION")))
-            // Required for OS file DnD (esp. Windows); harmless elsewhere.
-            .with_drag_and_drop(true),
+        viewport,
         ..Default::default()
     };
 
@@ -26,6 +31,8 @@ fn main() -> eframe::Result<()> {
             }));
         }
     }
+    #[cfg(not(target_os = "linux"))]
+    let _ = &mut options;
 
     eframe::run_native(
         "csv-bench",
