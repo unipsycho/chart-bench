@@ -1,8 +1,27 @@
 # Chart-Bench
 
-Desktop workbench for **CSV / XLS(X) / Parquet** graphing — **100% Rust**, **egui + egui_plot**.
+Fast multi-file channel graphing for instrumentation and control dumps — **CSV · Excel · Parquet**, **100% Rust**, **egui + egui_plot**.
 
-Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart layouts, session autosave, and Follow mode for growing files.
+## Why Chart-Bench
+
+Engineers in instrumentation and control often sit on piles of data files with huge channel counts. Most charting UIs bog down there — weak at massive channel sets, awkward with multi-file overlays, and slow when you just need to get series on a plot.
+
+**Chart-Bench** is built for that job: a fast multi-file channel handler. Preview channels into charts, combine files on the same axes, dual Y when scales disagree, keep chart options simple, and save complete sessions (files + charts + axis assignments) for one-click restore next time.
+
+Written in Rust so it stays fast and efficient. Few tools handle many files and huge channel sets this way.
+
+## Features
+
+- **Huge channel sets** — open dumps with large channel counts; filter and sparkline-preview before you plot
+- **Multi-file overlays** — combine series from many files on the same charts
+- **Preview → chart** — drag channels onto plots (Shift / ←→ for left vs right axis)
+- **Dual Y-axes** — overlay series with different scales without fighting the UI
+- **Simple chart options** — toolbar for options, Save PNG, Export CSV, clear / duplicate / pop-out
+- **Complete sessions** — files, charts, and axis assignments saved together; one-click restore
+- **Named presets** — reuse layouts across similar runs
+- **Formats** — CSV / TSV, Excel (XLS/XLSX, all non-empty sheets), Parquet (SNAPPY + uncompressed)
+- **Follow mode** — watch growing CSV files as they are written
+- **Multi-chart layouts** — stacked / side-by-side tiles with nested layouts
 
 ## Screenshots
 
@@ -67,30 +86,6 @@ Binary: `target/release/chart-bench`.
 ./scripts/grow_demo.sh samples/live_growing.csv
 # in the app: Open that file, tick Follow
 ```
-
-## Features
-
-| Area | Status |
-|------|--------|
-| Multi-line header detect (names/nodes/units) | ✅ |
-| Auto time column → X, else index | ✅ |
-| CSV + XLSX import (all non-empty sheets → `file.xlsx :: Sheet`) | ✅ |
-| Parquet ingest (SNAPPY + UNCOMPRESSED; clear error otherwise) | ✅ |
-| Channels panel + sparklines + filter | ✅ |
-| Drag channel → chart (Shift = right axis) | ✅ |
-| Multi-series egui_plot + legend + hover | ✅ |
-| Dual axis (linked X, stacked L/R plots) | ✅ |
-| Multi-chart stacked / side-by-side | ✅ |
-| Files **New chart** (plain-text control) | ✅ |
-| Chart toolbar **Save PNG** (full widget: axes + scales) | ✅ |
-| Luminance-based grid / scale contrast | ✅ |
-| Info panel stats / spacing / gaps | ✅ |
-| Table preview | ✅ |
-| Session autosave | ✅ |
-| Named presets | ✅ |
-| Follow growing CSV (`notify`) | ✅ |
-| Export chart CSV | ✅ |
-| OS file drop onto window | ✅ |
 
 ## Layout
 
