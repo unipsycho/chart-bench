@@ -19,7 +19,7 @@ Written in Rust so it stays fast and efficient. Few tools handle many files and 
 - **Simple chart options** — toolbar for options, Save PNG, Export CSV, clear / duplicate / pop-out
 - **Complete sessions** — files, charts, and axis assignments saved together; one-click restore
 - **Named presets** — reuse layouts across similar runs
-- **Formats** — CSV / TSV, Excel (XLS/XLSX, all non-empty sheets), Parquet (SNAPPY + uncompressed), MATLAB `.mat`, ASAM MF4, WITSML wellLog XML, SQLite (table-as-dataset)
+- **Formats** — CSV / TSV, Excel (XLS/XLSX, all non-empty sheets), Parquet (SNAPPY + uncompressed), MATLAB `.mat`, MDF/MF4, WITSML wellLog XML, SQLite (tables as datasets with timestamp autodetection)
 - **Follow mode** — watch growing CSV files as they are written
 - **Multi-chart layouts** — stacked / side-by-side tiles with nested layouts
 
