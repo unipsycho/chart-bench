@@ -6,19 +6,41 @@ Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart la
 
 ## Screenshots
 
-![OTSG2 process log in csv-bench](docs/screenshots/csv-bench-otsg2-chart.png)
-
-*OTSG2 process log — Files / Channels sidebar, Chart 1, and status bar.*
-
 ![csv-bench UI on M17](docs/screenshots/csv-bench-m17-ui.png)
 
-Chart toolbar (Options · Save PNG · Export CSV · …) and nested tile layouts:
+Chart toolbar (Options · Save PNG · Export CSV · …):
 
-| Chart toolbar | Nested tiles |
-|---|---|
-| ![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png) | ![Nested tiles](docs/screenshots/csv-bench-nested-tiles.png) |
+![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png)
+
+Nested tile layouts:
+
+![Nested tiles](docs/screenshots/csv-bench-nested-tiles.png)
 
 Save PNG captures the full plot widget (axes + scales). Chart background color fills the plot and axis chrome; grid and tick ink follow luminance — faded dark ink on light fills, quiet light ink on dark fills.
+
+## Downloads
+
+Prebuilt **v0.8.0** packages: [GitHub Releases](https://github.com/unipsycho/csv-bench/releases/tag/v0.8.0)
+
+| Asset | Notes |
+|------|--------|
+| `csv-bench-0.8.0-windows-x86_64-portable.zip` | Portable Windows (`csv-bench.exe`) |
+| `csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz` | Portable Linux binary (glibc ≥ 2.31 / Debian 11+) |
+| `csv-bench_0.8.0_amd64.deb` | Debian / Ubuntu |
+| `csv-bench-0.8.0-1.x86_64.rpm` | Fedora / RHEL-like |
+| `SHA256SUMS` | Checksums for the above |
+
+```bash
+# Debian / Ubuntu
+sudo dpkg -i csv-bench_0.8.0_amd64.deb
+
+# Fedora / RHEL-like
+sudo rpm -i csv-bench-0.8.0-1.x86_64.rpm
+
+# Portable Linux
+tar -xzf csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz
+./csv-bench
+```
 
 ## Build / run
 
