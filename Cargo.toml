@@ -31,8 +31,8 @@ anyhow = "=1.0.80"
 uuid = { version = "=1.7.0", features = ["v4", "serde"] }
 parking_lot = "=0.12.1"
 calamine = "=0.24.0"
-# Lightweight Parquet (no Arrow). Codecs: UNCOMPRESSED + SNAPPY only.
-parquet = { version = "=53.0.0", default-features = false, features = ["snap"] }
+# Parquet without Arrow. Codecs: UNCOMPRESSED, SNAPPY, GZIP, ZSTD, LZ4, BROTLI.
+parquet = { version = "=53.0.0", default-features = false, features = ["snap", "flate2", "zstd", "lz4", "brotli"] }
 # MATLAB Level-5 .mat numeric arrays.
 matfile = "0.5"
 # ASAM MDF4 / MF4 measurement files.

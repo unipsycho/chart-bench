@@ -140,17 +140,28 @@ impl ChartBenchApp {
         self.ui = sess.ui;
         self.ui.dock.normalize();
         self.recent_files = sess.recent_files;
+        let mut restore_errs: Vec<String> = Vec::new();
         for f in sess.files {
-            if self.open_path(PathBuf::from(&f.path)).is_ok() {
-                if let Some(ds) = self.datasets.last_mut() {
-                    ds.follow = f.follow;
-                    ds.channels_visible = f.channels_visible;
-                    if f.follow {
-                        let p = ds.path.clone();
-                        self.watch_path(&p);
+            match self.open_path(PathBuf::from(&f.path)) {
+                Ok(()) => {
+                    if let Some(ds) = self.datasets.last_mut() {
+                        ds.follow = f.follow;
+                        ds.channels_visible = f.channels_visible;
+                        if f.follow {
+                            let p = ds.path.clone();
+                            self.watch_path(&p);
+                        }
                     }
                 }
+                Err(e) => restore_errs.push(format!("{}: {e}", f.path)),
             }
+        }
+        if !restore_errs.is_empty() {
+            self.status = format!(
+                "Session restore: {} file(s) failed — {}",
+                restore_errs.len(),
+                restore_errs.join("; ")
+            );
         }
         if !sess.charts.is_empty() {
             self.charts = sess
@@ -797,10 +808,12 @@ impl ChartBenchApp {
         };
         self.datasets.clear();
         let mut opened = 0usize;
+        let mut open_errs: Vec<String> = Vec::new();
         for slot in &preset.slots {
             if let Some(path) = &slot.path {
-                if self.open_path(PathBuf::from(path)).is_ok() {
-                    opened += 1;
+                match self.open_path(PathBuf::from(path)) {
+                    Ok(()) => opened += 1,
+                    Err(e) => open_errs.push(format!("{path}: {e}")),
                 }
             }
         }
@@ -839,11 +852,20 @@ impl ChartBenchApp {
         }
         self.active_chart = 0;
         let series_n: usize = self.charts.iter().map(|c| c.series.len()).sum();
-        self.status = format!(
-            "Applied preset '{}' — {opened} files, {} charts, {series_n} series.",
-            preset.name,
-            self.charts.len()
-        );
+        self.status = if open_errs.is_empty() {
+            format!(
+                "Applied preset '{}' — {opened} files, {} charts, {series_n} series.",
+                preset.name,
+                self.charts.len()
+            )
+        } else {
+            format!(
+                "Applied preset '{}' — {opened} files ok, {} failed: {}",
+                preset.name,
+                open_errs.len(),
+                open_errs.join("; ")
+            )
+        };
     }
 
     fn export_chart_csv(&self, chart_idx: usize) -> anyhow::Result<()> {

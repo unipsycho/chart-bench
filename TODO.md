@@ -9,7 +9,7 @@ Actionable list (titles from the former Project tracker; Cursor task IDs dropped
 - [ ] Lock planning and todos into local chart-bench *(this lockdown — keep docs current)*
 - [ ] Confirm Preset vs Bookmark naming + slot / channel-mismatch UX
 - [ ] Confirm export formats (PNG / CSV / workspace) and anomaly threshold UX
-- [x] Implement Parquet ingest (replace stub) — UNCOMPRESSED + SNAPPY via lightweight `parquet` (no Arrow)
+- [x] Implement Parquet ingest (replace stub) — multi-codec typed load + large-file row-group sample (no Arrow)
 - [ ] Command palette / F1 if not fully wired
 - [ ] Session history preview / revert (per workflow vision)
 

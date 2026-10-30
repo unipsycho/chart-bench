@@ -24,7 +24,7 @@ Living list of product / engineering gaps. Pair with `TODO.md` for action items.
 
 ## Data formats
 
-- **Parquet** — lightweight ingest shipped (`parquet` crate, no Arrow): **UNCOMPRESSED** + **SNAPPY** only; other codecs error clearly.
+- **Parquet** — typed ingest (`parquet` crate, no Arrow): **UNCOMPRESSED / SNAPPY / GZIP / ZSTD / LZ4 / BROTLI**; files above 250k rows are row-group sampled so channels open without OOM.
 - **MATLAB `.mat`** — Level-5 numeric vectors via `matfile` (time-like var → X, else index).
 - **MDF/MF4** — ASAM MF4 via `falcon_mdf` (channel groups → datasets). Classic MDF3 (`.mdf`) listed in Open filters but not covered by sample fixtures.
 - **WITSML** — wellLog XML mnemonics + `logData` rows via `quick-xml`.
