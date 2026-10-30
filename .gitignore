@@ -25,6 +25,9 @@ samples/iot_sensor_long_100k.csv
 samples/OTSG2-PROCESS LOGDATA.csv
 samples/uber_nyc_sep2014.csv
 
+# Local ≥500MB soak corpora (NYC TLC, etc.) — never push to GitHub
+samples/large/
+
 # Session / secrets (never commit)
 .env
 .env.*
