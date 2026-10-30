@@ -2,14 +2,19 @@
 //!
 //! Codecs: **UNCOMPRESSED**, **SNAPPY**, **GZIP** (`flate2`), **ZSTD**, **LZ4**, **BROTLI**.
 //!
-//! Large files (≥ [`MAX_PARQUET_PLOT_ROWS`]) are stride/row-group sampled so channel
-//! discovery stays interactive — full 40M+ row materialization would OOM/hang.
+//! Large files (≥ [`MAX_PARQUET_PLOT_ROWS`]) are subsampled for interactive channel
+//! discovery — full 40M+ row materialization would OOM/hang.
+//!
+//! Continuous / high-rate series use a **uniform stride** across each row group so
+//! plotted time stays evenly spaced. Taking only the head of each row group looks
+//! like dense blocks with huge sensor gaps on DAQ soaks (fake discontinuities).
 
 use std::fs::File;
 use std::path::Path;
 
 use parquet::basic::Type as PhysicalType;
 use parquet::file::reader::{FileReader, SerializedFileReader};
+use parquet::file::statistics::Statistics;
 use parquet::record::Field;
 use parquet::schema::types::ColumnDescriptor;
 use uuid::Uuid;
@@ -19,6 +24,10 @@ use crate::model::{ChannelMeta, Dataset, HeaderRole, ParsePlan, XAxis, XMode};
 
 /// Soft cap on plotted rows. Above this, we sample evenly across row groups.
 pub const MAX_PARQUET_PLOT_ROWS: usize = 250_000;
+
+/// Mean Δt (seconds) at or below this → treat as continuous / high-rate → uniform stride.
+/// Covers ≥5 Hz soaks (1 kHz DAQ, 10 Hz walks). NYC taxi RGs average ~0.5–1 s/trip.
+const REGULAR_SERIES_MAX_MEAN_DT_SECS: f64 = 0.2;
 
 pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
     let file = File::open(path).map_err(|e| anyhow::anyhow!("open {}: {e}", path.display()))?;
@@ -43,9 +52,9 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
         .collect();
     let x_col = pick_x_column(schema, &names);
 
-    // Sample plan: keep ≤ MAX rows. Per-RG early-take stays proportional to kept rows
-    // (full-RG stride would decompress the entire file — too slow for 8M–40M soaks).
-    let (per_rg_cap, stride_global) = sample_plan(total_rows, n_rg);
+    // Keep ≤ MAX rows. Regular time series → uniform per-RG stride (no fake gaps).
+    // Sparse/event logs → per-RG head (fast; RGs already span the timeline).
+    let mode = sample_mode(&reader, x_col, total_rows, n_rg);
 
     let mut raw_cols: Vec<Vec<f64>> = vec![Vec::new(); n_cols];
     let mut kept = 0usize;
@@ -53,23 +62,42 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
 
     for rg_i in 0..n_rg {
         let rg = reader.get_row_group(rg_i).map_err(map_parquet_err)?;
+        let rg_rows = rg.metadata().num_rows().max(0) as usize;
         let iter = rg.get_row_iter(None).map_err(map_parquet_err)?;
         let mut kept_in_rg = 0usize;
+        let mut local_i = 0usize;
+
+        // Stride inside the RG so kept samples cover the full time window (not just the head).
+        let rg_step = match mode {
+            SampleMode::UniformPerRg { per_rg } if rg_rows > 0 => {
+                (rg_rows / per_rg.max(1)).max(1)
+            }
+            _ => 1usize,
+        };
 
         for row_res in iter {
             let row = row_res.map_err(map_parquet_err)?;
-            let take = if let Some(cap) = per_rg_cap {
-                // Early-exit per row group — decompress only the sampled prefix.
-                if kept_in_rg >= cap {
-                    break;
+            let take = match mode {
+                SampleMode::All => true,
+                SampleMode::PerRgHead { cap } => {
+                    if kept_in_rg >= cap {
+                        break;
+                    }
+                    true
                 }
-                true
-            } else if let Some(stride) = stride_global {
-                let hit = global_i % stride == 0;
-                global_i += 1;
-                hit
-            } else {
-                true
+                SampleMode::UniformPerRg { per_rg } => {
+                    if kept_in_rg >= per_rg {
+                        break;
+                    }
+                    let hit = local_i % rg_step == 0;
+                    local_i += 1;
+                    hit
+                }
+                SampleMode::GlobalStride { stride } => {
+                    let hit = global_i % stride == 0;
+                    global_i += 1;
+                    hit
+                }
             };
             if !take {
                 continue;
@@ -89,11 +117,11 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
             }
             kept_in_rg += 1;
             kept += 1;
-            if kept >= MAX_PARQUET_PLOT_ROWS && per_rg_cap.is_none() {
+            if kept >= MAX_PARQUET_PLOT_ROWS && matches!(mode, SampleMode::GlobalStride { .. }) {
                 break;
             }
         }
-        if kept >= MAX_PARQUET_PLOT_ROWS && stride_global.is_some() {
+        if kept >= MAX_PARQUET_PLOT_ROWS && matches!(mode, SampleMode::GlobalStride { .. }) {
             break;
         }
     }
@@ -113,17 +141,108 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
     build_dataset_from_columns(path, &names, raw_cols, x_col, total_rows, meta_len)
 }
 
-/// How to sample: prefer per-row-group early-take (fast); else global stride.
-fn sample_plan(total_rows: usize, n_rg: usize) -> (Option<usize>, Option<usize>) {
+#[derive(Debug, Clone, Copy)]
+enum SampleMode {
+    All,
+    /// First `cap` rows of each row group (fast; OK for sparse/event timelines).
+    PerRgHead { cap: usize },
+    /// Every `rg_rows/per_rg`-th row inside each group — even time on continuous DAQ.
+    UniformPerRg { per_rg: usize },
+    /// Single row-group (or unknown layout): global index stride.
+    GlobalStride { stride: usize },
+}
+
+fn sample_mode(
+    reader: &SerializedFileReader<File>,
+    x_col: Option<usize>,
+    total_rows: usize,
+    n_rg: usize,
+) -> SampleMode {
     if total_rows <= MAX_PARQUET_PLOT_ROWS {
-        return (None, None);
+        return SampleMode::All;
     }
+    let per = (MAX_PARQUET_PLOT_ROWS / n_rg.max(1)).max(1);
     if n_rg >= 2 {
-        let per = (MAX_PARQUET_PLOT_ROWS / n_rg).max(1);
-        (Some(per), None)
+        if looks_like_regular_series(reader, x_col) {
+            SampleMode::UniformPerRg { per_rg: per }
+        } else {
+            // Event/trip style: RGs already partition the timeline; head is enough and fast.
+            SampleMode::PerRgHead { cap: per }
+        }
     } else {
-        let stride = (total_rows / MAX_PARQUET_PLOT_ROWS).max(1);
-        (None, Some(stride))
+        SampleMode::GlobalStride {
+            stride: (total_rows / MAX_PARQUET_PLOT_ROWS).max(1),
+        }
+    }
+}
+
+/// True when X stats imply a high-rate / regular clock (DAQ), not sparse events.
+fn looks_like_regular_series(reader: &SerializedFileReader<File>, x_col: Option<usize>) -> bool {
+    let Some(xc) = x_col else {
+        return false;
+    };
+    let md = reader.metadata();
+    let schema = md.file_metadata().schema_descr();
+    if xc >= schema.num_columns() {
+        return false;
+    }
+    let scale = timestamp_stat_scale_to_secs(schema.column(xc).as_ref());
+    let n_rg = md.num_row_groups();
+    let probe = n_rg.min(8);
+    let mut regular = 0usize;
+    for rg_i in 0..probe {
+        let rg = md.row_group(rg_i);
+        let rows = rg.num_rows().max(0) as usize;
+        if rows < 2 || xc >= rg.num_columns() {
+            continue;
+        }
+        let Some(stats) = rg.column(xc).statistics() else {
+            continue;
+        };
+        let Some((min_v, max_v)) = int64_stat_minmax(stats) else {
+            continue;
+        };
+        let span_secs = (max_v - min_v) as f64 * scale;
+        if !span_secs.is_finite() || span_secs <= 0.0 {
+            continue;
+        }
+        let mean_dt = span_secs / (rows - 1) as f64;
+        if mean_dt > 0.0 && mean_dt <= REGULAR_SERIES_MAX_MEAN_DT_SECS {
+            regular += 1;
+        }
+    }
+    // Majority of probed RGs look like ≥5 Hz (mean Δt ≤ 200 ms) continuous sampling.
+    regular * 2 >= probe.max(1)
+}
+
+fn timestamp_stat_scale_to_secs(col: &ColumnDescriptor) -> f64 {
+    use parquet::basic::{LogicalType, TimeUnit};
+    match col.logical_type() {
+        Some(LogicalType::Timestamp {
+            unit: TimeUnit::MILLIS(_),
+            ..
+        }) => 1e-3,
+        Some(LogicalType::Timestamp {
+            unit: TimeUnit::MICROS(_),
+            ..
+        }) => 1e-6,
+        Some(LogicalType::Timestamp {
+            unit: TimeUnit::NANOS(_),
+            ..
+        }) => 1e-9,
+        Some(LogicalType::Date) => 86_400.0,
+        _ => {
+            // Physical INT64 without unit: assume seconds (ms/µs handled after load).
+            1.0
+        }
+    }
+}
+
+fn int64_stat_minmax(stats: &Statistics) -> Option<(i64, i64)> {
+    match stats {
+        Statistics::Int64(v) => Some((*v.min_opt()?, *v.max_opt()?)),
+        Statistics::Int32(v) => Some((*v.min_opt()? as i64, *v.max_opt()? as i64)),
+        _ => None,
     }
 }
 
@@ -405,6 +524,11 @@ mod tests {
             .join("samples/large/nyc_yellow_taxi_2024.parquet")
     }
 
+    fn large_daq() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("samples/large/daq_multichannel_1khz.parquet")
+    }
+
     #[test]
     fn loads_iris_parquet() {
         let path = sample("iris.parquet");
@@ -528,6 +652,41 @@ mod tests {
             ds.display_name.contains('/'),
             "should note downsampling: {}",
             ds.display_name
+        );
+    }
+
+    #[test]
+    fn loads_daq_soak_with_uniform_time_not_rg_heads() {
+        let path = large_daq();
+        if !path.exists() {
+            return;
+        }
+        let ds = load_parquet_path(&path).expect("daq parquet");
+        assert!(ds.x_is_time, "timestamp must be X");
+        assert!(
+            ds.record_count() > 10_000 && ds.record_count() <= MAX_PARQUET_PLOT_ROWS,
+            "rows={}",
+            ds.record_count()
+        );
+        assert!(ds.channels.len() >= 12, "channels={}", ds.channels.len());
+
+        // Old per-RG head sampling left ~242 s holes on this 1 kHz soak.
+        // Uniform stride should keep successive X gaps on the order of tens of ms.
+        let mut xs: Vec<f64> = ds.x.iter().copied().filter(|v| v.is_finite()).collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        assert!(xs.len() > 1000);
+        let mut max_gap = 0.0_f64;
+        for w in xs.windows(2) {
+            max_gap = max_gap.max(w[1] - w[0]);
+        }
+        assert!(
+            max_gap < 5.0,
+            "max X gap {max_gap:.3}s looks like row-group head sampling (expected ≪ 250s)"
+        );
+        let span = xs[xs.len() - 1] - xs[0];
+        assert!(
+            span > 7000.0,
+            "sampled span {span:.0}s should cover most of the ~2.2h soak"
         );
     }
 }
