@@ -43,7 +43,8 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
         .collect();
     let x_col = pick_x_column(schema, &names);
 
-    // Sample plan: keep ≤ MAX rows without scanning every record when possible.
+    // Sample plan: keep ≤ MAX rows. Per-RG early-take stays proportional to kept rows
+    // (full-RG stride would decompress the entire file — too slow for 8M–40M soaks).
     let (per_rg_cap, stride_global) = sample_plan(total_rows, n_rg);
 
     let mut raw_cols: Vec<Vec<f64>> = vec![Vec::new(); n_cols];
@@ -64,11 +65,12 @@ pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
                 }
                 true
             } else if let Some(stride) = stride_global {
-                global_i % stride == 0
+                let hit = global_i % stride == 0;
+                global_i += 1;
+                hit
             } else {
                 true
             };
-            global_i += 1;
             if !take {
                 continue;
             }
@@ -199,12 +201,17 @@ fn build_dataset_from_columns(
         file_stem
     };
 
+    // pick_x_column only selects timestamp-typed or time-named columns.
     let x_is_time = x_col.is_some();
-    let x = if let Some(xc) = x_col {
+    let mut x = if let Some(xc) = x_col {
         raw_cols[xc].clone()
     } else {
         (0..n).map(|i| i as f64).collect()
     };
+    // INT64 + LogicalType Timestamp can arrive as raw Long (ms/µs). Plot expects seconds.
+    if x_is_time {
+        normalize_epoch_seconds(&mut x);
+    }
 
     let mut channels = Vec::new();
     let mut columns: Vec<Vec<f64>> = Vec::new();
@@ -292,6 +299,30 @@ fn map_parquet_err(e: parquet::errors::ParquetError) -> anyhow::Error {
     }
 }
 
+/// If X looks like epoch millis/micros (not seconds), scale down for plot/time axis.
+fn normalize_epoch_seconds(x: &mut [f64]) {
+    let mut sample: Vec<f64> = x.iter().copied().filter(|v| v.is_finite()).take(64).collect();
+    if sample.is_empty() {
+        return;
+    }
+    sample.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let med = sample[sample.len() / 2].abs();
+    let scale = if (1.0e11..1.0e14).contains(&med) {
+        // Epoch milliseconds → seconds
+        1_000.0
+    } else if (1.0e14..1.0e17).contains(&med) {
+        // Epoch microseconds → seconds
+        1_000_000.0
+    } else {
+        return;
+    };
+    for v in x.iter_mut() {
+        if v.is_finite() {
+            *v /= scale;
+        }
+    }
+}
+
 /// Convert a parquet Field into a plottable f64 (time → epoch seconds).
 fn field_to_f64(field: &Field) -> Option<f64> {
     match field {
@@ -347,6 +378,21 @@ fn parse_number_cell(s: &str) -> Option<f64> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn normalize_epoch_millis_to_seconds() {
+        let mut x = vec![1_700_000_000_000.0, 1_700_000_000_001.0];
+        normalize_epoch_seconds(&mut x);
+        assert!((x[0] - 1_700_000_000.0).abs() < 1e-6, "{:?}", x);
+        assert!((x[1] - 1_700_000_000.001).abs() < 1e-6, "{:?}", x);
+    }
+
+    #[test]
+    fn normalize_leaves_unix_seconds_alone() {
+        let mut x = vec![1_700_000_000.0, 1_700_000_001.0];
+        normalize_epoch_seconds(&mut x);
+        assert!((x[0] - 1_700_000_000.0).abs() < 1e-9);
+    }
 
     fn sample(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

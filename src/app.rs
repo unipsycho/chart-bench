@@ -59,6 +59,8 @@ pub struct ChartBenchApp {
     plot_rects: HashMap<Uuid, egui::Rect>,
     /// After Save PNG: wait for ViewportCommand::Screenshot reply.
     pending_png: Option<PendingPngExport>,
+    /// Chart ids that should snap plot X back to auto-fit (new series / file load).
+    reset_plot_auto: HashSet<Uuid>,
     pub status: String,
     pub last_save: Instant,
     pub presets: PresetLibrary,
@@ -95,6 +97,7 @@ impl Default for ChartBenchApp {
             popped_charts: HashSet::new(),
             plot_rects: HashMap::new(),
             pending_png: None,
+            reset_plot_auto: HashSet::new(),
             status: "Open a CSV / XLSX or load the demo sample.".into(),
             last_save: Instant::now(),
             presets: load_presets(),
@@ -460,7 +463,9 @@ impl ChartBenchApp {
         if let Some((path, name, col)) = meta {
             stamp_series_keys(&mut b, &path, &name, col);
         }
+        let chart_id = chart.id;
         chart.series.push(b);
+        self.reset_plot_auto.insert(chart_id);
         self.status = format!("Added series to {}", chart.title);
     }
 
@@ -619,7 +624,25 @@ impl ChartBenchApp {
         if self.charts.len() > 1 && self.ui.chart_layout == ChartLayout::Overlay {
             self.ui.chart_layout = ChartLayout::Stacked;
         }
-        self.ensure_chart_tree();
+        // Place the new leaf exactly once via split_at. Do NOT sync_with_charts first:
+        // sync appends missing ids, then split_at inserts again → two tiles for one chart
+        // (three visible panes); moving one leaf then collapses back to two.
+        if self.ui.chart_tree.is_none() {
+            let prior: Vec<Uuid> = self
+                .charts
+                .iter()
+                .filter(|c| c.id != new_id)
+                .map(|c| c.id)
+                .collect();
+            self.ui.chart_tree =
+                Some(ChartTileTree::from_chart_ids(&prior, self.ui.chart_layout));
+        } else if let Some(tree) = self.ui.chart_tree.as_mut() {
+            while tree.contains(new_id) {
+                if !tree.remove_leaf(new_id) {
+                    break;
+                }
+            }
+        }
         if let Some(tree) = self.ui.chart_tree.as_mut() {
             if !tree.split_at(src_id, new_id, TileEdge::South) {
                 tree.sync_with_charts(&self.charts, self.ui.chart_layout);
@@ -3017,7 +3040,12 @@ impl ChartBenchApp {
                     ]);
                 }
             }
+            let force_auto = self.reset_plot_auto.remove(&chart.id);
             let plot_resp = plot_l.show(ui, |plot_ui| {
+                if force_auto {
+                    // New L/R assign after empty-tile zoom must not keep a stale 0..1 X window.
+                    plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
+                }
                 for (name, color, pts) in &overlay_series {
                     add_styled_series(plot_ui, name, *color, pts, &draw);
                 }
@@ -4706,6 +4734,21 @@ fn apply_wheel_zoom_x_and_locked_auto_y(
     let mut bounds = plot_ui.plot_bounds();
     let mut x_auto = plot_ui.auto_bounds().x;
 
+    // Stale X window (empty-tile zoom / default 0..1) with real series at unix time → blank
+    // plot and frozen axis. If current X misses all points, snap back to fit-all.
+    if let Some(fit) = fit {
+        if fit.is_valid_x() {
+            let x0 = bounds.min()[0];
+            let x1 = bounds.max()[0];
+            let overlaps_fit = x0 <= fit.max()[0] && x1 >= fit.min()[0];
+            let any_in_window = series_has_point_in_x(series, x0, x1);
+            if !x_auto && (!overlaps_fit || !any_in_window) {
+                plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
+                return;
+            }
+        }
+    }
+
     // --- X-only wheel / pinch ---
     if plot_ui.response().contains_pointer() {
         let (mut zoom, scroll) =
@@ -4774,8 +4817,31 @@ fn apply_wheel_zoom_x_and_locked_auto_y(
         let mut y_fit = PlotBounds::from_min_max([x0, y_min], [x1, y_max]);
         y_fit.add_relative_margin_y(egui::vec2(0.05, 0.05));
         bounds.set_y(&y_fit);
+        plot_ui.set_plot_bounds(bounds);
+    } else if let Some(fit) = fit {
+        // Zoomed window lost all points (e.g. after file reload with new X scale) — refit.
+        if fit.is_valid() {
+            plot_ui.set_auto_bounds(egui::Vec2b::TRUE);
+        }
     }
-    plot_ui.set_plot_bounds(bounds);
+}
+
+/// True if any series sample falls inside inclusive X window.
+fn series_has_point_in_x(
+    series: &[&(String, [u8; 3], Vec<[f64; 2]>)],
+    x0: f64,
+    x1: f64,
+) -> bool {
+    let (lo, hi) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
+    for (_, _, pts) in series {
+        for p in pts {
+            let x = p[0];
+            if x.is_finite() && x >= lo && x <= hi {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn icon_toggle(ui: &mut egui::Ui, on: &mut bool, glyph: &str, tip: &str) {

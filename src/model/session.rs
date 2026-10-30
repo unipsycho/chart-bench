@@ -275,6 +275,8 @@ impl ChartTileTree {
                 break;
             }
         }
+        // Collapse duplicate leaf ids (e.g. old sync+split_at double-insert) — keep one.
+        self.dedupe_leaves();
         // If tree empty / nil after prune, rebuild
         let mut present = Vec::new();
         self.collect_ids(&mut present);
@@ -294,6 +296,25 @@ impl ChartTileTree {
                     first: Box::new(old),
                     second: Box::new(Self::leaf(c.id)),
                 };
+            }
+        }
+    }
+
+    /// Remove extra copies of the same chart id until each id appears once.
+    fn dedupe_leaves(&mut self) {
+        loop {
+            let mut ids = Vec::new();
+            self.collect_ids(&mut ids);
+            let mut seen = std::collections::HashSet::new();
+            let dup = ids.into_iter().find(|id| {
+                *id != Uuid::nil() && !seen.insert(*id)
+            });
+            let Some(dup) = dup else {
+                break;
+            };
+            // remove_leaf drops one occurrence; sibling structure collapses cleanly.
+            if !self.remove_leaf(dup) {
+                break;
             }
         }
     }
@@ -764,5 +785,51 @@ mod tests {
         let got = resolve_channel_id(&[ds], &b).expect("remap");
         assert_eq!(got, flow_id);
         assert_eq!(b.axis, AxisSide::Right);
+    }
+
+    #[test]
+    fn split_at_adds_one_leaf_not_two() {
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let mut tree = ChartTileTree::leaf(a);
+        assert!(tree.split_at(a, b, TileEdge::South));
+        let mut ids = Vec::new();
+        tree.collect_ids(&mut ids);
+        assert_eq!(ids.len(), 2, "ids={ids:?}");
+        assert!(ids.contains(&a) && ids.contains(&b));
+        assert_eq!(tree.leaf_count(), 2);
+    }
+
+    #[test]
+    fn sync_then_split_would_duplicate_but_dedupe_repairs() {
+        // Mimic the old duplicate_chart bug: sync appends B, then split_at inserts B again.
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let charts = vec![
+            super::super::dataset::ChartState::new("Chart 1"),
+            super::super::dataset::ChartState::new("Chart 2"),
+        ];
+        // Use known ids
+        let mut charts = charts;
+        charts[0].id = a;
+        charts[1].id = b;
+        let mut tree = ChartTileTree::leaf(a);
+        tree.sync_with_charts(&charts, ChartLayout::Stacked);
+        assert!(tree.split_at(a, b, TileEdge::South));
+        let mut ids = Vec::new();
+        tree.collect_ids(&mut ids);
+        assert!(
+            ids.iter().filter(|&&id| id == b).count() >= 2,
+            "precondition: B duplicated, got {ids:?}"
+        );
+        tree.sync_with_charts(&charts, ChartLayout::Stacked);
+        ids.clear();
+        tree.collect_ids(&mut ids);
+        assert_eq!(
+            ids.iter().filter(|&&id| id == b).count(),
+            1,
+            "dedupe should leave one B, got {ids:?}"
+        );
+        assert_eq!(tree.leaf_count(), 2);
     }
 }
