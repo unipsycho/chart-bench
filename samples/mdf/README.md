@@ -12,4 +12,4 @@ No redistributable public `.mdf` / `.mf4` with a clear sample license was pulled
 these small synthetics avoid license ambiguity. Classic MDF3 (`.mdf`) not included;
 MF4 is the preferred ASAM format for new ingest work.
 
-Ingest for MDF is **not** wired in chart-bench yet — these exist for format probing.
+Ingest is wired in chart-bench (`open_path` + Open dialog filters).

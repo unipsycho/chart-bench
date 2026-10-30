@@ -11,7 +11,10 @@ use egui_plot::{
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use uuid::Uuid;
 
-use crate::ingest::{append_csv_growth, load_csv_path, load_parquet_path, load_xlsx_workbook};
+use crate::ingest::{
+    append_csv_growth, load_csv_path, load_mat_path, load_mdf_path, load_parquet_path,
+    load_sqlite_path, load_witsml_path, load_xlsx_workbook,
+};
 use crate::model::{
     binding, load_presets, load_session, resolve_channel_id, save_presets, save_session,
     session_path, stamp_series_keys, AxisSide, ChartDrawOptions, ChartKind, ChartLayout,
@@ -268,34 +271,20 @@ impl ChartBenchApp {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-        // XLSX/XLS: every non-empty sheet becomes its own dataset.
-        if matches!(ext.as_str(), "xlsx" | "xls") {
-            let sheets = load_xlsx_workbook(&path)?;
-            let n = sheets.len();
-            let path_s = path.display().to_string();
-            self.push_recent(&path_s);
-            let mut last_id = None;
-            let mut summary = Vec::new();
-            for ds in sheets {
-                summary.push(format!(
-                    "{} ({} ch, {} rows)",
-                    ds.display_name,
-                    ds.channels.len(),
-                    ds.record_count()
-                ));
-                last_id = Some(ds.id);
-                self.datasets.push(ds);
-            }
-            self.selected_dataset = last_id.or(self.selected_dataset);
-            self.status = if n == 1 {
-                format!("Loaded {}", summary.join(", "))
-            } else {
-                format!("Loaded {n} sheets — {}", summary.join("; "))
-            };
-            return Ok(());
+        // Multi-dataset formats: each sheet/table/log/group becomes its own dataset.
+        let multi: Option<Vec<Dataset>> = match ext.as_str() {
+            "xlsx" | "xls" => Some(load_xlsx_workbook(&path)?),
+            "mf4" | "mdf" => Some(load_mdf_path(&path)?),
+            "xml" | "witsml" => Some(load_witsml_path(&path)?),
+            "sqlite" | "db" | "sqlite3" => Some(load_sqlite_path(&path)?),
+            _ => None,
+        };
+        if let Some(sheets) = multi {
+            return self.push_multi_datasets(path, sheets, "sheets");
         }
         let ds = match ext.as_str() {
             "parquet" | "pq" => load_parquet_path(&path)?,
+            "mat" => load_mat_path(&path)?,
             _ => load_csv_path(&path)?,
         };
         self.status = format!(
@@ -311,12 +300,53 @@ impl ChartBenchApp {
         Ok(())
     }
 
+    /// Push several datasets from one file (XLSX sheets, SQLite tables, …).
+    fn push_multi_datasets(
+        &mut self,
+        path: PathBuf,
+        sheets: Vec<Dataset>,
+        kind: &str,
+    ) -> anyhow::Result<()> {
+        let n = sheets.len();
+        let path_s = path.display().to_string();
+        self.push_recent(&path_s);
+        let mut last_id = None;
+        let mut summary = Vec::new();
+        for ds in sheets {
+            summary.push(format!(
+                "{} ({} ch, {} rows)",
+                ds.display_name,
+                ds.channels.len(),
+                ds.record_count()
+            ));
+            last_id = Some(ds.id);
+            self.datasets.push(ds);
+        }
+        self.selected_dataset = last_id.or(self.selected_dataset);
+        self.status = if n == 1 {
+            format!("Loaded {}", summary.join(", "))
+        } else {
+            format!("Loaded {n} {kind} — {}", summary.join("; "))
+        };
+        Ok(())
+    }
+
     fn pick_and_open_file(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter(
                 "Data",
-                &["csv", "tsv", "txt", "xlsx", "xls", "parquet", "pq"],
+                &[
+                    "csv", "tsv", "txt", "xlsx", "xls", "parquet", "pq", "mat", "mf4", "mdf",
+                    "xml", "witsml", "sqlite", "db", "sqlite3",
+                ],
             )
+            .add_filter("CSV / TSV", &["csv", "tsv", "txt"])
+            .add_filter("Excel", &["xlsx", "xls"])
+            .add_filter("Parquet", &["parquet", "pq"])
+            .add_filter("MATLAB", &["mat"])
+            .add_filter("MDF / MF4", &["mf4", "mdf"])
+            .add_filter("WITSML XML", &["xml", "witsml"])
+            .add_filter("SQLite", &["sqlite", "db", "sqlite3"])
             .pick_file()
         {
             if let Err(e) = self.open_path(path) {

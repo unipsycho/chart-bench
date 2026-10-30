@@ -11,4 +11,4 @@ Committed fixtures only — no generator scripts in this repo.
 
 Mirrors the plant / vibration channel naming used under `samples/matlab/`. Intended
 for **table-as-sheet** UX (each table ≈ one sheet/dataset), similar to multi-sheet
-Excel. Ingest is **not** wired yet.
+Excel. Ingest is wired in chart-bench (`open_path` + Open dialog filters).

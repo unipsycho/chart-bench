@@ -10,4 +10,4 @@ Mnemonics / channels: `TIME`, `DEPTH`, `ROP`, `WOB`, `SPP`, `FLOWIN` (21 rows of
 comma-separated `logData`). Synthetic — not from a real well.
 
 Schema namespace: `http://www.witsml.org/schemas/1series`. Intended for upcoming
-WITSML XML ingest / mnemonic → channel mapping. Ingest is **not** wired yet.
+WITSML XML ingest / mnemonic → channel mapping. Ingest is wired in chart-bench (`open_path` + Open dialog filters).

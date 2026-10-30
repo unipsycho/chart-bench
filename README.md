@@ -1,6 +1,6 @@
 # Chart-Bench
 
-Fast multi-file channel graphing for instrumentation and control dumps — **CSV · Excel · Parquet**, **100% Rust**, **egui + egui_plot**.
+Fast multi-file channel graphing for instrumentation and control dumps — **CSV · Excel · Parquet · MATLAB · MF4 · WITSML · SQLite**, **100% Rust**, **egui + egui_plot**.
 
 ## Why Chart-Bench
 
@@ -19,7 +19,7 @@ Written in Rust so it stays fast and efficient. Few tools handle many files and 
 - **Simple chart options** — toolbar for options, Save PNG, Export CSV, clear / duplicate / pop-out
 - **Complete sessions** — files, charts, and axis assignments saved together; one-click restore
 - **Named presets** — reuse layouts across similar runs
-- **Formats** — CSV / TSV, Excel (XLS/XLSX, all non-empty sheets), Parquet (SNAPPY + uncompressed)
+- **Formats** — CSV / TSV, Excel (XLS/XLSX, all non-empty sheets), Parquet (SNAPPY + uncompressed), MATLAB `.mat`, ASAM MF4, WITSML wellLog XML, SQLite (table-as-dataset)
 - **Follow mode** — watch growing CSV files as they are written
 - **Multi-chart layouts** — stacked / side-by-side tiles with nested layouts
 
