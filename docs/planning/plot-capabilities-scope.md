@@ -1,4 +1,4 @@
-# Plot capabilities scope (egui_plot + csv-bench)
+# Plot capabilities scope (egui_plot + chart-bench)
 
 **Audience:** product review before building.  
 **Stack assumption:** egui + eframe + **egui_plot** (TopicBench-aligned). Custom `Painter` only where egui_plot is too weak.  
@@ -11,7 +11,7 @@
 
 These are **first-class product requirements**, not polish. They define Layer A success as much as “can draw a line.”
 
-| Must-have | Meaning for csv-bench | egui_plot fit |
+| Must-have | Meaning for chart-bench | egui_plot fit |
 | --- | --- | --- |
 | **Multi-axes** | Dual (or multi) Y scales on one plot and/or stacked plots with independent Y + **linked X**; series assignable to an axis | Linked plots + dual-Y transform/overlay; assign series → left/right axis |
 | **Clear legends** | Readable series names (file + column), color swatch, click show/hide, not cramped or truncated by default | Built-in legend + our naming/style layer |
@@ -67,7 +67,7 @@ You can also implement **`PlotItem`** yourself for exotic series (candles, error
 
 ## 2. Chart types to consider (product menu)
 
-Ratings for **csv-bench** (tabular CSV/Parquet/XLS, DAQ-ish, Favnyr tiling, TopicBench-like multi-series):
+Ratings for **Chart-Bench** (tabular CSV/Parquet/XLS, DAQ-ish, Favnyr tiling, TopicBench-like multi-series):
 
 **MVP** = ship soon · **Soon** = after core line workflow · **Later** = nice · **Skip** = wrong product shape
 
@@ -255,6 +255,6 @@ Still open:
 
 ## 7. Short verdict
 
-**egui_plot is the right default** for csv-bench: interactive cartesian multi-series is its job, and that matches TopicBench + DAQ CSV workflows.  
+**egui_plot is the right default** for chart-bench: interactive cartesian multi-series is its job, and that matches TopicBench + DAQ CSV workflows.  
 
 Plan Layer A around **line/scatter + auto time-X + multi-axes + clear legends + mouse-over + previews + export (PNG/CSV/workspace) + linked tiles + DnD + downsampling**. Next ring: histogram/log/measure/envelope. Heatmap/FFT optional later. **Pie / 3D / BI = never.**

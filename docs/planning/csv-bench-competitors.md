@@ -1,4 +1,4 @@
-# csv-bench — competitor notes (technical)
+# Chart-Bench — competitor notes (technical)
 
 **Related:** [competitive-csv-graphing-survey.md](competitive-csv-graphing-survey.md) (feature-fit matrix and full dossiers).
 

@@ -24,6 +24,8 @@ Living list of product / engineering gaps. Pair with `TODO.md` for action items.
 
 ## Data formats
 
+- **SQLite ingest (priority, not started):** load tables like multi-sheet XLSX; auto-detect timestamp columns; expose as channels.
+
 - **Parquet** — lightweight ingest shipped (`parquet` crate, no Arrow): **UNCOMPRESSED** + **SNAPPY** only; other codecs error clearly.
 - Export formats beyond chart CSV / session — confirm PNG + workspace export UX.
 - Broader dialect / encoding edge cases beyond current sniffer (learn from qsv / CleverCSV / DuckDB / Polars).

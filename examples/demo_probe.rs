@@ -1,5 +1,5 @@
-use csv_bench::ingest::detect::{detect_parse_plan, RawTable};
-use csv_bench::model::HeaderRole;
+use chart_bench::ingest::detect::{detect_parse_plan, RawTable};
+use chart_bench::model::HeaderRole;
 fn main() {
     let table = RawTable {
         rows: vec![

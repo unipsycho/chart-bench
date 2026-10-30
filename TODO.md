@@ -4,7 +4,9 @@ Actionable list (titles from the former Project tracker; Cursor task IDs dropped
 
 ## Open
 
-- [ ] Lock planning and todos into local csv-bench *(this lockdown — keep docs current)*
+- [ ] **SQLite ingest** — treat tables like multi-sheet XLSX; auto-detect timestamp columns; show those channels
+
+- [ ] Lock planning and todos into local chart-bench *(this lockdown — keep docs current)*
 - [ ] Confirm Preset vs Bookmark naming + slot / channel-mismatch UX
 - [ ] Confirm export formats (PNG / CSV / workspace) and anomaly threshold UX
 - [x] Implement Parquet ingest (replace stub) — UNCOMPRESSED + SNAPPY via lightweight `parquet` (no Arrow)
@@ -26,14 +28,14 @@ Actionable list (titles from the former Project tracker; Cursor task IDs dropped
 - [x] Scroll-wheel chart zoom (clamp to fit-all) + quieter plot grids
 - [x] Channel list ↑↓ keyboard nav
 - [x] Stack Info + Saved/Presets in one right column; dock stacks rearrangeable + session-persisted
-- [x] Relaunch csv-bench GUI on M17
+- [x] Relaunch Chart-Bench GUI on M17
 - [x] Fix channel names and Favnyr-ish UI layout pass → `docs/planning/csv-bench-ui-pass.md`
-- [x] Launch csv-bench GUI on M17
+- [x] Launch Chart-Bench GUI on M17
 - [x] Collect varied public CSV samples → `docs/planning/csv-bench-sample-csvs.md`, `samples/`
 - [x] Mid-size open stress CSVs (~100k–500k) — local/gitignored; see `samples/README.md`
 - [x] Clear painted Table icon on icon rail + Table section header
-- [x] Build and run csv-bench on M17 → `docs/planning/csv-bench-m17-build.md`
-- [x] Scaffold csv-bench egui workbench source
+- [x] Build and run chart-bench on M17 → `docs/planning/csv-bench-m17-build.md`
+- [x] Scaffold chart-bench egui workbench source
 - [x] Decide UI chrome and navigation model → `docs/planning/ui-chrome-navigation.md`
 - [x] Design live / growing file follow mode → `docs/planning/live-file-reload.md`
 - [x] Survey CSV sniffing and channel-detection tools → `docs/planning/csv-detection-tools-landscape.md`

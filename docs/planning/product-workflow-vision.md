@@ -1,4 +1,4 @@
-# csv-bench — product workflow vision
+# Chart-Bench — product workflow vision
 
 **Goal:** Go from **files → channel preview → charts** in seconds, via drag-and-drop. Overlay channels (same file or many files), multi-axes as needed, then **reuse the same layout/views on the next similar dump** with minimal friction. Auto-save everything; make history/revert/preview of past work obvious.
 

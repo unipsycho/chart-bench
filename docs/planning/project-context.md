@@ -3,7 +3,7 @@
 > Snapshot of decisions; durable copy is root [`PROJECT.md`](../../PROJECT.md). Paths below are local to this repo.
 
 ## Home
-- Local project folder (M17): `/home/mike/Documents/AAI-Projects/csv-bench`
+- Local project folder (M17): `/home/mike/Documents/AAI-Projects/chart-bench`
 - Inspiration: Favnyr (Rust + Slint file manager) — layout UX only; GPL-3.0 → clean-room
 - Feature map: [favnyr-csv-feature-map.md](favnyr-csv-feature-map.md)
 - Plot capability scope: [plot-capabilities-scope.md](plot-capabilities-scope.md)
@@ -14,7 +14,7 @@
 - OSS CSV detection / profiling landscape: [csv-detection-tools-landscape.md](csv-detection-tools-landscape.md)
 - Competitive CSV/tabular graphing survey: [competitive-csv-graphing-survey.md](competitive-csv-graphing-survey.md)
 - UI chrome / panel navigation: [ui-chrome-navigation.md](ui-chrome-navigation.md)
-- External sample CSVs catalog: [csv-bench-sample-csvs.md](csv-bench-sample-csvs.md)
+- External sample CSVs catalog: [chart-bench-sample-csvs.md](chart-bench-sample-csvs.md)
 
 ## Decisions
 - Stack: **100% Rust**, **egui + eframe + egui_plot** (TopicBench-aligned), not Slint
@@ -36,7 +36,7 @@
 - **Chrome (proposed):** no fat TopicBench-style ribbon for v1 — compact top bar + panel toggles + Favnyr tiling/DnD + command palette/F1; optional thin File/View/Help menu; per-chart mini toolbar (see ui-chrome-navigation.md)
 
 ## Decisions (continued)
-- Default layout: Files above Channels; single-line channel rows; chart default **Overlay + shared Y**; multi-axis auto range groups; Favnyr-ish icon rail + framed chrome (see csv-bench-ui-pass.md)
+- Default layout: Files above Channels; single-line channel rows; chart default **Overlay + shared Y**; multi-axis auto range groups; Favnyr-ish icon rail + framed chrome (see chart-bench-ui-pass.md)
 - Multi-row LabVIEW-style headers: prefer instrument/name row over title/operator for channel names
 
 ## Open

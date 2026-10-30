@@ -1,6 +1,6 @@
 # Sample CSVs
 
-Small demos and public-domain / open datasets for smoke-testing csv-bench.
+Small demos and public-domain / open datasets for smoke-testing chart-bench.
 
 - Click **Demo CSV** in the app, or **Open** any file here.
 - `otsg2_header_sample.tsv` — multi-line LabVIEW-style header snippet.
@@ -9,4 +9,4 @@ Small demos and public-domain / open datasets for smoke-testing csv-bench.
 - `excel/` — XLSX samples (single + multi-sheet); see `excel/README.md`.
 - `parquet/` — Parquet samples (stub ingest until CG-33); see `parquet/README.md`.
 
-Large soak-test files (100k–500k+ rows) may exist on a local machine but are **gitignored** so the public repo stays lean. See `docs/planning/csv-bench-sample-csvs.md` for provenance notes.
+Large soak-test files (100k–500k+ rows) may exist on a local machine but are **gitignored** so the public repo stays lean. See `docs/planning/chart-bench-sample-csvs.md` for provenance notes.

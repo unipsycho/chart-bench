@@ -1,4 +1,4 @@
-# csv-bench sample CSVs
+# Chart-Bench sample CSVs
 
 Public demos live flat under `samples/` (see also `samples/README.md`).
 

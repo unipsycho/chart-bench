@@ -1,14 +1,14 @@
 # Competitive survey — CSV / tabular graphing tools
 
 **Status:** Complete (M17, 2026-10-28). Web + GitHub spot-check.  
-**Purpose:** Position **csv-bench** before locking MVP scope — strengths of peers, gaps vs our goals, differentiation.  
+**Purpose:** Position **Chart-Bench** before locking MVP scope — strengths of peers, gaps vs our goals, differentiation.  
 **Related:** [product-workflow-vision.md](product-workflow-vision.md), [favnyr-csv-feature-map.md](favnyr-csv-feature-map.md), [csv-detection-tools-landscape.md](csv-detection-tools-landscape.md), [plot-capabilities-scope.md](plot-capabilities-scope.md).
 
 **Note:** Prefer official hosts. PlotJuggler README warns that **plotjuggler.com** has been impersonated — use [plotjuggler.io](https://www.plotjuggler.io) / [github.com/PlotJuggler/PlotJuggler](https://github.com/PlotJuggler/PlotJuggler).
 
 ---
 
-## 1. Evaluation lens (csv-bench goals)
+## 1. Evaluation lens (chart-bench goals)
 
 Score each tool against the product must-haves (not “who has the most chart types”):
 
@@ -29,7 +29,7 @@ Also noted when relevant: live/follow files, Parquet/XLS, speed on big series, l
 
 ## 2. Executive matrix
 
-| Tool | DnD | Multi-file | Dual Y | Tiling | Multi-hdr | Presets | Fit to csv-bench |
+| Tool | DnD | Multi-file | Dual Y | Tiling | Multi-hdr | Presets | Fit to chart-bench |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **PlotJuggler** | ✅ | ✅ | ❌ (by design) | ⚠️ plots/layout | ❌ | ✅ layouts | Closest cousin — steal UX, differ on Y + headers |
 | **VisiData** | — (keys) | ⚠️ | ⚠️ | — | ❌ | — | Explore/TUI inspiration, not a workbench |
@@ -65,7 +65,7 @@ Also noted when relevant: live/follow files, Parquet/XLS, speed on big series, l
 - Live streaming + transforms (Lua/Python in PJ4); plugin ecosystem.
 - Mental model matches DAQ engineers (channels, time tracker, zoom).
 
-**Gaps vs csv-bench**
+**Gaps vs chart-bench**
 
 | Criterion | Gap |
 | --- | --- |
@@ -226,7 +226,7 @@ Also noted when relevant: live/follow files, Parquet/XLS, speed on big series, l
 
 **Strengths:** egui/eframe/egui_plot DNA; multi-topic graphs; stickies; dual-axis familiarity; keyboard-first.  
 **Gaps:** Topic/MQTT product — not CSV ParsePlan / multi-file dump presets.  
-**Steal:** Plot interaction, chrome density, packaging lessons — keep csv-bench a **sibling**, not a TopicBench clone with CSV.
+**Steal:** Plot interaction, chrome density, packaging lessons — keep chart-bench a **sibling**, not a TopicBench clone with CSV.
 
 ---
 
@@ -242,7 +242,7 @@ Also noted when relevant: live/follow files, Parquet/XLS, speed on big series, l
 
 ---
 
-## 5. Recommendations for csv-bench differentiation
+## 5. Recommendations for chart-bench differentiation
 
 ### Own these wedges (marketing + MVP priority)
 
@@ -272,7 +272,7 @@ Also noted when relevant: live/follow files, Parquet/XLS, speed on big series, l
 
 ### Competitive one-liner
 
-> **csv-bench is the desktop dump workbench PlotJuggler refuses to be on dual-Y, DIAdem won’t be on ugly CSV headers, and Excel can’t be on tiled multi-file channel DnD — with presets that rebind next week’s run.**
+> **chart-bench is the desktop dump workbench PlotJuggler refuses to be on dual-Y, DIAdem won’t be on ugly CSV headers, and Excel can’t be on tiled multi-file channel DnD — with presets that rebind next week’s run.**
 
 ### Suggested MVP lock (post-survey)
 

@@ -1,4 +1,4 @@
-# csv-bench UI + header naming pass (M17)
+# Chart-Bench UI + header naming pass (M17)
 
 ## Fixes
 
@@ -28,10 +28,10 @@
 ## Verify
 
 ```bash
-cd /home/mike/Documents/AAI-Projects/csv-bench
+cd /home/mike/Documents/AAI-Projects/chart-bench
 cargo test --lib
 cargo run --release
 # Open samples/OTSG2-…Copy01.csv or samples/otsg2_header_sample.tsv
 ```
 
-Binary: `target/release/csv-bench`
+Binary: `target/release/chart-bench`

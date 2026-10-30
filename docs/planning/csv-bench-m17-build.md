@@ -1,4 +1,4 @@
-# csv-bench M17 build & smoke
+# Chart-Bench M17 build & smoke
 
 **Host:** M17 (Omarchy / Hyprland, Wayland)  
 **Date:** 2026-10-27  
@@ -9,13 +9,13 @@
 | Item | Path |
 |------|------|
 | Project store | `~/.local/state/cursor/agent-stores/cursor_agent_stores/bc-cdbe497d-a963-456d-ac13-59411966bbd7/files/` |
-| Store artifact source | `…/files/artifacts/csv-bench/` |
-| Store tarball | `…/files/media/csv-bench-src.tar.gz` |
-| Working tree | `/home/mike/Documents/AAI-Projects/csv-bench` |
-| Release binary | `/home/mike/Documents/AAI-Projects/csv-bench/target/release/csv-bench` (~12M) |
-| UI screenshot | `…/files/media/csv-bench-m17-ui.png` (1261×1390) |
+| Store artifact source | `…/files/artifacts/chart-bench/` |
+| Store tarball | `…/files/media/chart-bench-src.tar.gz` |
+| Working tree | `/home/mike/Documents/AAI-Projects/chart-bench` |
+| Release binary | `/home/mike/Documents/AAI-Projects/chart-bench/target/release/chart-bench` (~12M) |
+| UI screenshot | `…/files/media/chart-bench-m17-ui.png` (1261×1390) |
 
-Synced from store `artifacts/csv-bench` → working tree (local folder was empty/stale).  
+Synced from store `artifacts/chart-bench` → working tree (local folder was empty/stale).  
 Removed `.cargo/config.toml` (cloud gitlab-index workaround) — not present on disk after sync cleanup.
 
 ## Toolchain / display
@@ -42,8 +42,8 @@ Remaining: one deprecation warning (`ComboBox::from_id_source` → `id_salt`).
 ## Smoke
 
 - `scripts/smoke_inspect.sh` — **ALL OK** (multiline / index / semicolon samples)
-- `cargo run --release` / binary launch — process stayed up, Hyprland client **title=`csv-bench`**, empty stderr log
-- Screenshot captured with `grim` of the window region → `media/csv-bench-m17-ui.png` (empty chart UI: Open / Demo CSV / Files·Channels·Info)
+- `cargo run --release` / binary launch — process stayed up, Hyprland client **title=`chart-bench`**, empty stderr log
+- Screenshot captured with `grim` of the window region → `media/chart-bench-m17-ui.png` (empty chart UI: Open / Demo CSV / Files·Channels·Info)
 
 ## App ran?
 

@@ -1,4 +1,4 @@
-# csv-bench
+# Chart-Bench
 
 Desktop workbench for **CSV / XLS(X) / Parquet** graphing — **100% Rust**, **egui + egui_plot**.
 
@@ -8,21 +8,21 @@ Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart la
 
 Chart toolbar (Options · Save PNG · Export CSV · …):
 
-![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png)
+![Chart toolbar](docs/screenshots/chart-bench-chart-toolbar.png)
 
 Nested tile layouts:
 
-![Nested tiles](docs/screenshots/csv-bench-nested-tiles.png)
+![Nested tiles](docs/screenshots/chart-bench-nested-tiles.png)
 
 Save PNG captures the full plot widget (axes + scales). Chart background color fills the plot and axis chrome; grid and tick ink follow luminance — faded dark ink on light fills, quiet light ink on dark fills.
 
 ## Downloads
 
-Prebuilt **v0.8.0** packages: [GitHub Releases](https://github.com/unipsycho/csv-bench/releases/tag/v0.8.0)
+Prebuilt **v0.8.0** packages: [GitHub Releases](https://github.com/unipsycho/chart-bench/releases/tag/v0.8.0)
 
 | Asset | Notes |
 |------|--------|
-| `csv-bench-0.8.0-windows-x86_64-portable.zip` | Portable Windows (`csv-bench.exe`) |
+| `csv-bench-0.8.0-windows-x86_64-portable.zip` | Portable Windows (`csv-bench.exe`) — published before rename |
 | `csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz` | Portable Linux binary (glibc ≥ 2.31 / Debian 11+) |
 | `csv-bench_0.8.0_amd64.deb` | Debian / Ubuntu |
 | `csv-bench-0.8.0-1.x86_64.rpm` | Fedora / RHEL-like |
@@ -40,13 +40,15 @@ tar -xzf csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz
 ./csv-bench
 ```
 
+> Repo renamed **csv-bench → chart-bench**. Old release asset filenames above are unchanged; new builds use the `chart-bench` binary name.
+
 ## Build / run
 
 Requires a recent Rust toolchain (edition 2021, rust-version 1.74+).
 
 ```bash
-git clone https://github.com/unipsycho/csv-bench.git
-cd csv-bench
+git clone https://github.com/unipsycho/chart-bench.git
+cd chart-bench
 cargo run --release
 ```
 
@@ -56,7 +58,7 @@ Then click **Demo CSV**, or Open / drop files onto the window.
 cargo test --lib
 ```
 
-Binary: `target/release/csv-bench`.
+Binary: `target/release/chart-bench`.
 
 ### Live Follow demo
 

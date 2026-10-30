@@ -1,16 +1,16 @@
 # OSS / GitHub landscape — CSV detection, channels, profiling, viz hints
 
-**Purpose:** Tools that already sniff CSV structure, infer types/channels, profile quality, or suggest how to view/graph data — so csv-bench can **borrow ideas** (and optionally deps) rather than inventing every heuristic.  
+**Purpose:** Tools that already sniff CSV structure, infer types/channels, profile quality, or suggest how to view/graph data — so chart-bench can **borrow ideas** (and optionally deps) rather than inventing every heuristic.  
 **Caveat:** Authored on a cloud agent **without live GitHub access**; URLs and feature claims are from known public projects and should be **spot-checked on M17** against current READMEs/tags.  
 **Related:** [csv-header-channel-detection.md](csv-header-channel-detection.md), [data-info-panel-analysis.md](data-info-panel-analysis.md), [plot-capabilities-scope.md](plot-capabilities-scope.md).
 
-**Relevance key:** ★★★ = study closely for csv-bench · ★★ = useful patterns · ★ = adjacent
+**Relevance key:** ★★★ = study closely for chart-bench · ★★ = useful patterns · ★ = adjacent
 
 ---
 
 ## 1. What we’re looking for
 
-| Capability | csv-bench need |
+| Capability | chart-bench need |
 | --- | --- |
 | Dialect sniff (`,`;` tab, quotes) | Robust open |
 | Header depth / multi-row headers | Owner must-have (rare in OSS) |
@@ -20,7 +20,7 @@
 | Viz recommendation (“plot this as line vs bar”) | Optional later |
 | Fast Rust or embeddable logic | Stack fit |
 
-**Honest gap:** Very few open tools handle **multi-line DAQ headers** (name/node/units) well. Most assume **one header row**. That part is likely **custom** for csv-bench; everything else has strong priors.
+**Honest gap:** Very few open tools handle **multi-line DAQ headers** (name/node/units) well. Most assume **one header row**. That part is likely **custom** for chart-bench; everything else has strong priors.
 
 ---
 
@@ -69,7 +69,7 @@
 | **Plotly Express** | Python | `px.line` etc. with column roles | ★ | Convenience API shape |
 | **RawGraphs** | Web | Chart type picker from tables | ★ | Manual, not sniff |
 
-For csv-bench v1: **don’t need a recommender engine** — owner workflow is DnD channels. Still useful: **if column is temporal → default X**; numeric → series; low-cardinality string → don’t plot as line.
+For chart-bench v1: **don’t need a recommender engine** — owner workflow is DnD channels. Still useful: **if column is temporal → default X**; numeric → series; low-cardinality string → don’t plot as line.
 
 ---
 
@@ -105,7 +105,7 @@ For csv-bench v1: **don’t need a recommender engine** — owner workflow is Dn
 
 ---
 
-## 7. Recommended takeaways for csv-bench
+## 7. Recommended takeaways for chart-bench
 
 1. **Dialect + types:** Follow **DuckDB/Polars/qsv/CleverCSV** ideas — sample rows, score delimiters, infer dtypes. Prefer **Polars or DuckDB** in-process over reimplementing sniffers from scratch.  
 2. **Multi-line headers (name/node/units):** Treat as **product differentiator**; little OSS does this. Implement per [csv-header-channel-detection.md](csv-header-channel-detection.md).  

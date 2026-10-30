@@ -65,7 +65,7 @@ fn map_parquet_err(e: parquet::errors::ParquetError) -> anyhow::Error {
         || msg.to_lowercase().contains("lz4")
     {
         anyhow::anyhow!(
-            "Parquet compression not supported ({msg}). csv-bench reads UNCOMPRESSED and SNAPPY only."
+            "Parquet compression not supported ({msg}). chart-bench reads UNCOMPRESSED and SNAPPY only."
         )
     } else {
         anyhow::anyhow!("parquet: {msg}")

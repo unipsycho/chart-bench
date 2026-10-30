@@ -1,13 +1,13 @@
-# csv-bench — project lockdown
+# Chart-Bench — project lockdown
 
-**Repo:** https://github.com/unipsycho/csv-bench  
+**Repo:** https://github.com/unipsycho/chart-bench  
 **Version:** 0.8.0  
 **License:** MIT OR Apache-2.0
 
 ## Build / run
 
 ```bash
-cd csv-bench
+cd chart-bench
 cargo run --release
 ```
 
@@ -19,7 +19,7 @@ cargo test --lib
 # Follow growing file: ./scripts/grow_demo.sh samples/live_growing.csv  then Open + Follow
 ```
 
-Binary: `target/release/csv-bench`.
+Binary: `target/release/chart-bench`.
 
 ## What this is
 

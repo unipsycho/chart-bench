@@ -7,7 +7,7 @@
 
 ## Goal
 
-Logger or exporter is appending to a CSV (or similar) on disk. User opens it in csv-bench **while it’s growing** and sees charts / info / channel previews **update** without manual re-open — with clear control so the UI doesn’t thrash.
+Logger or exporter is appending to a CSV (or similar) on disk. User opens it in chart-bench **while it’s growing** and sees charts / info / channel previews **update** without manual re-open — with clear control so the UI doesn’t thrash.
 
 ---
 

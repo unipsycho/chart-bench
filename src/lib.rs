@@ -1,4 +1,4 @@
-//! Library surface for csv-bench.
+//! Library surface for chart-bench.
 
 pub mod app;
 pub mod chart_theme;

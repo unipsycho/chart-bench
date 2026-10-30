@@ -538,11 +538,11 @@ pub struct Preset {
 }
 
 pub fn session_path() -> PathBuf {
-    dirs_next_data().join("csv-bench").join("session.toml")
+    dirs_next_data().join("chart-bench").join("session.toml")
 }
 
 pub fn presets_path() -> PathBuf {
-    dirs_next_data().join("csv-bench").join("presets.toml")
+    dirs_next_data().join("chart-bench").join("presets.toml")
 }
 
 fn dirs_next_data() -> PathBuf {
@@ -552,7 +552,7 @@ fn dirs_next_data() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return PathBuf::from(home).join(".local/share");
     }
-    PathBuf::from(".").join("csv-bench-data")
+    PathBuf::from(".").join("chart-bench-data")
 }
 
 pub fn save_session(session: &Session) -> anyhow::Result<()> {

@@ -701,6 +701,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-bench"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "calamine",
+ "chrono",
+ "csv",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "egui_plot",
+ "image",
+ "notify",
+ "parking_lot",
+ "parquet",
+ "rfd",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "uuid",
+ "winit",
+ "winres",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -915,32 +941,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "csv-bench"
-version = "0.8.0"
-dependencies = [
- "anyhow",
- "calamine",
- "chrono",
- "csv",
- "eframe",
- "egui",
- "egui_extras",
- "egui_plot",
- "image",
- "notify",
- "parking_lot",
- "parquet",
- "rfd",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "toml 0.8.23",
- "uuid",
- "winit",
- "winres",
 ]
 
 [[package]]

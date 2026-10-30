@@ -21,7 +21,7 @@ use crate::model::{
 };
 use crate::stats::{channel_stats, file_stats, sparkline};
 
-pub struct CsvBenchApp {
+pub struct ChartBenchApp {
     pub datasets: Vec<Dataset>,
     pub charts: Vec<ChartState>,
     pub ui: UiFlags,
@@ -69,7 +69,7 @@ pub struct CsvBenchApp {
     watched: HashMap<String, ()>,
 }
 
-impl Default for CsvBenchApp {
+impl Default for ChartBenchApp {
     fn default() -> Self {
         let (watch_tx, watch_rx) = mpsc::channel();
         let mut app = Self {
@@ -112,7 +112,7 @@ impl Default for CsvBenchApp {
     }
 }
 
-impl CsvBenchApp {
+impl ChartBenchApp {
     fn init_watcher(&mut self) {
         let tx = self.watch_tx.clone();
         match RecommendedWatcher::new(
@@ -868,7 +868,7 @@ struct PendingPngExport {
     viewport_id: egui::ViewportId,
 }
 
-impl eframe::App for CsvBenchApp {
+impl eframe::App for ChartBenchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_follows();
         self.autosave();
@@ -946,7 +946,7 @@ impl eframe::App for CsvBenchApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             egui::RichText::new(format!(
-                                "CSV Bench  {}",
+                                "Chart-Bench  {}",
                                 env!("CARGO_PKG_VERSION")
                             ))
                             .small()
@@ -1123,7 +1123,7 @@ impl eframe::App for CsvBenchApp {
     }
 }
 
-impl CsvBenchApp {
+impl ChartBenchApp {
     /// Finish Save PNG once the viewport Screenshot event arrives.
     fn poll_png_export(&mut self, ctx: &egui::Context) {
         let Some(pending) = &self.pending_png else {
@@ -1170,7 +1170,7 @@ impl CsvBenchApp {
             let vp_id = egui::ViewportId::from_hash_of(("chart_popout", id));
             let mut want_close = false;
             let mut vp = egui::ViewportBuilder::default()
-                .with_title(format!("CSV Bench — {title}"))
+                .with_title(format!("Chart-Bench — {title}"))
                 .with_inner_size([960.0, 640.0])
                 .with_min_inner_size([420.0, 280.0]);
             if let Some(icon) = load_window_icon() {
@@ -2913,7 +2913,7 @@ impl CsvBenchApp {
             let has_plot_data = !overlay_series.is_empty() || preview.is_some();
             let mut plot_l = Plot::new(("plot_l", chart.id)).height(avail);
             if has_plot_data {
-                plot_l = plot_l.link_axis(egui::Id::new("csv_bench_shared_x"), true, false);
+                plot_l = plot_l.link_axis(egui::Id::new("chart_bench_shared_x"), true, false);
             }
             plot_l = plot_l
                 // No hover/wheel/edge axis pan — wheel zooms X via apply_wheel_zoom_x_clamped; drag pans X.
@@ -4793,7 +4793,7 @@ fn resolve_dropped_file(f: &egui::DroppedFile) -> Result<PathBuf, String> {
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "dropped.csv".into())
         };
-        let dir = std::env::temp_dir().join("csv-bench-drops");
+        let dir = std::env::temp_dir().join("chart-bench-drops");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(fname);
         std::fs::write(&path, bytes.as_ref()).map_err(|e| e.to_string())?;
@@ -4879,7 +4879,7 @@ fn nearest_y(pts: &[[f64; 2]], x: f64) -> Option<f64> {
 
 /// Window / taskbar icon — chart mark (same art as Windows PE `assets/icons/app.ico`).
 pub fn load_window_icon() -> Option<egui::IconData> {
-    let bytes = include_bytes!("../assets/icons/csv-bench-app-icon-256.png");
+    let bytes = include_bytes!("../assets/icons/chart-bench-app-icon-256.png");
     let img = image::load_from_memory(bytes).ok()?.into_rgba8();
     let (width, height) = img.dimensions();
     Some(egui::IconData {

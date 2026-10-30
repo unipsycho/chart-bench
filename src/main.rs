@@ -1,13 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use csv_bench::app::{load_window_icon, CsvBenchApp};
+use chart_bench::app::{load_window_icon, ChartBenchApp};
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([800.0, 500.0])
-        .with_title(format!("CSV Bench  {}", env!("CARGO_PKG_VERSION")))
+        .with_title(format!("Chart-Bench  {}", env!("CARGO_PKG_VERSION")))
         // Required for OS file DnD (esp. Windows); harmless elsewhere.
         .with_drag_and_drop(true);
     if let Some(icon) = load_window_icon() {
@@ -35,11 +35,11 @@ fn main() -> eframe::Result<()> {
     let _ = &mut options;
 
     eframe::run_native(
-        "csv-bench",
+        "chart-bench",
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::<CsvBenchApp>::default())
+            Ok(Box::<ChartBenchApp>::default())
         }),
     )
 }

@@ -1,8 +1,8 @@
-use csv_bench::ingest::{detect_parse_plan, load_csv_path, sniff_delimiter, RawTable};
+use chart_bench::ingest::{detect_parse_plan, load_csv_path, sniff_delimiter, RawTable};
 
 fn main() {
     let path = std::path::Path::new(
-        "/home/mike/Documents/AAI-Projects/csv-bench/samples/otsg2_header_sample.tsv",
+        "/home/mike/Documents/AAI-Projects/chart-bench/samples/otsg2_header_sample.tsv",
     );
     let text = std::fs::read_to_string(path).unwrap();
     let d = sniff_delimiter(&text);

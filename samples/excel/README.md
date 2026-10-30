@@ -8,7 +8,7 @@ stats Rust). Files were built from CSV counterparts with openpyxl-style workbook
 | `seattle_weather.xlsx` | single sheet (`seattle_weather`) |
 | `weather_combo.xlsx` | `Seattle`, `Vega`, `Temps` |
 
-Opening an `.xlsx` in csv-bench loads **every non-empty sheet** as its own dataset named `file.xlsx :: SheetName`.
+Opening an `.xlsx` in chart-bench loads **every non-empty sheet** as its own dataset named `file.xlsx :: SheetName`.
 
 To rebuild locally (optional, not shipped): create workbooks from the CSVs under
 `samples/` — `seattle_weather.csv` → `seattle_weather.xlsx`; and a multi-sheet

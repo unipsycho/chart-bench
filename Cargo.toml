@@ -1,11 +1,11 @@
 [package]
-name = "csv-bench"
+name = "chart-bench"
 version = "0.8.0"
 edition = "2021"
 rust-version = "1.74"
 description = "Desktop CSV/Parquet/XLS graphing workbench (egui)"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/unipsycho/csv-bench"
+repository = "https://github.com/unipsycho/chart-bench"
 authors = ["Agile Automation / Mike King <mike@agileautomation.ca>"]
 publish = false
 
@@ -37,7 +37,7 @@ parquet = { version = "=53.0.0", default-features = false, features = ["snap"] }
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11"] }
 
 [build-dependencies]
-# Embed csv-bench.exe icon on Windows (and cross-compile via MinGW windres).
+# Embed chart-bench.exe icon on Windows (and cross-compile via MinGW windres).
 winres = "0.1"
 
 [profile.release]

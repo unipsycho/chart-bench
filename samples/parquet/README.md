@@ -2,7 +2,7 @@
 
 Committed fixtures only — no generator scripts in this repo (keeps GitHub language
 stats Rust). Files were built from the CSV counterparts with **SNAPPY** compression
-(csv-bench also loads **UNCOMPRESSED**). Other codecs (gzip / zstd / …) are rejected
+(chart-bench also loads **UNCOMPRESSED**). Other codecs (gzip / zstd / …) are rejected
 with a clear error.
 
 | File | Source CSV |

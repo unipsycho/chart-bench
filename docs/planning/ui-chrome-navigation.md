@@ -1,6 +1,6 @@
 # UI chrome — menu, ribbon, or panel-first?
 
-**Question:** Given csv-bench’s scoped workflow, do we need a **menu bar** or **TopicBench-style ribbon**? How do users open/toggle panels? How does that compare to **Favnyr**?
+**Question:** Given chart-bench’s scoped workflow, do we need a **menu bar** or **TopicBench-style ribbon**? How do users open/toggle panels? How does that compare to **Favnyr**?
 
 **Related:** [product-workflow-vision.md](product-workflow-vision.md), [favnyr-csv-feature-map.md](favnyr-csv-feature-map.md).
 
@@ -9,7 +9,7 @@
 ## 1. Short answer
 
 **You don’t need a full Office-style ribbon for the happy path.**  
-csv-bench is **panel + drag-and-drop + presets**, closer to Favnyr/PlotJuggler than to a document editor full of tabs of commands.
+chart-bench is **panel + drag-and-drop + presets**, closer to Favnyr/PlotJuggler than to a document editor full of tabs of commands.
 
 **You do need a thin, discoverable chrome** for: Open, panel toggles, Follow, Export, Presets, Help/shortcuts — plus **keyboard** (TopicBench habit) and a **command palette** for power users.
 
@@ -51,19 +51,19 @@ Group actions by frequency:
 | About / license | Menu or palette |
 | Full reload file | File row menu |
 
-A **classic menu bar** can hold File / Edit / View / Help as a thin OS-native or egui menu — fine for discoverability and accessibility. A **ribbon** only pays off if you have **many peer commands** that need icons in labeled groups (TopicBench’s MQTT surface might; csv-bench’s surface is thinner).
+A **classic menu bar** can hold File / Edit / View / Help as a thin OS-native or egui menu — fine for discoverability and accessibility. A **ribbon** only pays off if you have **many peer commands** that need icons in labeled groups (TopicBench’s MQTT surface might; chart-bench’s surface is thinner).
 
 ---
 
 ## 3. Favnyr vs TopicBench chrome
 
-| | **Favnyr** | **TopicBench** (your ribbon) | **csv-bench fit** |
+| | **Favnyr** | **TopicBench** (your ribbon) | **chart-bench fit** |
 | --- | --- | --- | --- |
 | Primary metaphor | File manager tiles + sidebar | MQTT workbench + ribbon actions | Data workbench tiles + DnD |
 | Top chrome | Relatively light; shortcuts heavy | Ribbon groups commands | Prefer **light** |
 | Panels | Sidebar + split leaves | Many panels / stickies | Files, Channels, Info, Charts, Saved |
 | Layout control | Drag zones, split, detach | Panel toggles in UI | **Favnyr-style** for charts |
-| Brand consistency | N/A | Same family as csv-bench | Echo TopicBench **shortcuts / F1**, not necessarily the ribbon height |
+| Brand consistency | N/A | Same family as chart-bench | Echo TopicBench **shortcuts / F1**, not necessarily the ribbon height |
 
 **Don’t clone Favnyr’s file-manager menus** (Open with, trash, eject). **Do clone** split/tab/detach + rebound shortcuts.  
 **Don’t require TopicBench’s full ribbon** unless you want visual kinship for marketing; **do** keep `?` / F1 help and panel toggles familiar.
