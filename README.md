@@ -41,25 +41,23 @@ Prebuilt **v0.8.0** packages: [GitHub Releases](https://github.com/unipsycho/cha
 
 | Asset | Notes |
 |------|--------|
-| `csv-bench-0.8.0-windows-x86_64-portable.zip` | Portable Windows (`csv-bench.exe`) — published before rename |
-| `csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz` | Portable Linux binary (glibc ≥ 2.31 / Debian 11+) |
-| `csv-bench_0.8.0_amd64.deb` | Debian / Ubuntu |
-| `csv-bench-0.8.0-1.x86_64.rpm` | Fedora / RHEL-like |
+| `chart-bench-0.8.0-windows-x86_64-portable.zip` | Portable Windows (`chart-bench.exe`) |
+| `chart-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz` | Portable Linux binary (glibc ≥ 2.31 / Debian 11+) |
+| `chart-bench_0.8.0_amd64.deb` | Debian / Ubuntu (`/usr/bin/chart-bench`) |
+| `chart-bench-0.8.0-1.x86_64.rpm` | Fedora / RHEL-like (`/usr/bin/chart-bench`) |
 | `SHA256SUMS` | Checksums for the above |
 
 ```bash
 # Debian / Ubuntu
-sudo dpkg -i csv-bench_0.8.0_amd64.deb
+sudo dpkg -i chart-bench_0.8.0_amd64.deb
 
 # Fedora / RHEL-like
-sudo rpm -i csv-bench-0.8.0-1.x86_64.rpm
+sudo rpm -i chart-bench-0.8.0-1.x86_64.rpm
 
 # Portable Linux
-tar -xzf csv-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz
-./csv-bench
+tar -xzf chart-bench-0.8.0-x86_64-unknown-linux-gnu.tar.gz
+./chart-bench
 ```
-
-> Repo renamed **csv-bench → chart-bench**. Old release asset filenames above are unchanged; new builds use the `chart-bench` binary name.
 
 ## Build / run
 

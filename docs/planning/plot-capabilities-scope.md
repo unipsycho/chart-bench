@@ -35,7 +35,7 @@ Think of egui_plot as an **interactive 2D cartesian plot canvas** with first-cla
 | **Points** | Scatter markers | Samples, outliers, sparse events |
 | **BarChart** | Vertical (or horizontal) bars | Histograms (pre-binned), category counts, discrete X |
 | **BoxPlot** | Box-and-whisker | Distribution summary per category / file |
-| **Arrows** | Vector field / quiver-ish | Rare for CSV bench; defer |
+| **Arrows** | Vector field / quiver-ish | Rare for Chart-Bench; defer |
 | **Polygon** | Filled / stroked shapes | Confidence bands, ROI overlays |
 | **HLine / VLine** | Infinite reference lines | Thresholds, triggers, “now”, zero line |
 | **Text** | Anchored labels | Annotations at points |

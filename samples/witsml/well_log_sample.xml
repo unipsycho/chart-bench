@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal WITSML 1.4.1.1 wellLog fixture for chart-bench ingest prototyping.
+  Synthetic data — not from a real well. Names mimic common mud-log mnemonics.
+-->
+<wellLogs
+  xmlns="http://www.witsml.org/schemas/1series"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  version="1.4.1.1">
+  <wellLog uidWell="W-DEMO-001" uidWellbore="WB-DEMO-001" uid="LOG-DEMO-001">
+    <nameWell>Demo Well 001</nameWell>
+    <nameWellbore>Demo Wellbore 001</nameWellbore>
+    <name>Demo Time Log</name>
+    <indexType>date time</indexType>
+    <startDateTimeIndex>2024-06-01T12:00:00.000Z</startDateTimeIndex>
+    <endDateTimeIndex>2024-06-01T12:04:00.000Z</endDateTimeIndex>
+    <direction>increasing</direction>
+    <indexCurve>TIME</indexCurve>
+    <logCurveInfo uid="TIME">
+      <mnemonic>TIME</mnemonic>
+      <unit>s</unit>
+      <curveDescription>Elapsed seconds from start</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logCurveInfo uid="DEPTH">
+      <mnemonic>DEPTH</mnemonic>
+      <unit>m</unit>
+      <curveDescription>Measured depth</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logCurveInfo uid="ROP">
+      <mnemonic>ROP</mnemonic>
+      <unit>m/h</unit>
+      <curveDescription>Rate of penetration</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logCurveInfo uid="WOB">
+      <mnemonic>WOB</mnemonic>
+      <unit>kdaN</unit>
+      <curveDescription>Weight on bit</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logCurveInfo uid="SPP">
+      <mnemonic>SPP</mnemonic>
+      <unit>kPa</unit>
+      <curveDescription>Standpipe pressure</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logCurveInfo uid="FLOWIN">
+      <mnemonic>FLOWIN</mnemonic>
+      <unit>L/min</unit>
+      <curveDescription>Mud flow in</curveDescription>
+      <typeLogData>double</typeLogData>
+    </logCurveInfo>
+    <logData>
+      <mnemonicList>TIME,DEPTH,ROP,WOB,SPP,FLOWIN</mnemonicList>
+      <unitList>s,m,m/h,kdaN,kPa,L/min</unitList>
+      <data>0,1200.0,18.5,8.2,14500,2100</data>
+      <data>30,1200.15,19.1,8.4,14620,2110</data>
+      <data>60,1200.32,17.8,8.1,14480,2095</data>
+      <data>90,1200.48,18.9,8.3,14590,2105</data>
+      <data>120,1200.65,20.2,8.6,14710,2120</data>
+      <data>150,1200.84,19.4,8.5,14650,2115</data>
+      <data>180,1201.01,18.0,8.0,14420,2088</data>
+      <data>210,1201.16,17.2,7.8,14350,2075</data>
+      <data>240,1201.30,18.7,8.2,14540,2100</data>
+      <data>270,1201.46,19.8,8.5,14680,2118</data>
+      <data>300,1201.63,21.0,8.8,14800,2130</data>
+      <data>330,1201.82,20.1,8.6,14720,2122</data>
+      <data>360,1202.00,19.0,8.3,14580,2108</data>
+      <data>390,1202.16,18.3,8.1,14500,2098</data>
+      <data>420,1202.31,17.5,7.9,14400,2085</data>
+      <data>450,1202.45,18.8,8.2,14550,2102</data>
+      <data>480,1202.61,19.5,8.4,14640,2112</data>
+      <data>510,1202.78,20.4,8.7,14750,2125</data>
+      <data>540,1202.96,19.2,8.4,14610,2110</data>
+      <data>570,1203.12,18.1,8.0,14460,2090</data>
+      <data>600,1203.27,17.9,7.9,14420,2082</data>
+    </logData>
+  </wellLog>
+</wellLogs>
