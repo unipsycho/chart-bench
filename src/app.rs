@@ -1948,7 +1948,7 @@ impl ChartBenchApp {
                 let spark = ds
                     .columns
                     .get(ch.column_index)
-                    .map(|c| sparkline(c, 48))
+                    .map(|c| sparkline_by_x(&ds.x, c, 48))
                     .unwrap_or_default();
                 out.push((ds.id, ch.id, ch.display_name.clone(), spark));
             }
@@ -2896,6 +2896,8 @@ impl ChartBenchApp {
                             let x = ds.x.get(i).copied().unwrap_or(i as f64);
                             pts.push([x, y]);
                         }
+                        // Unsorted time (e.g. NYC taxi Parquet) zigzags unless X is ordered.
+                        sort_plot_points_by_x(&mut pts);
                         match s.axis {
                             AxisSide::Left => left.push((ch.display_name.clone(), s.color, pts)),
                             AxisSide::Right => {
@@ -3164,6 +3166,7 @@ impl ChartBenchApp {
                         let x = ds.x.get(i).copied().unwrap_or(i as f64);
                         pts.push([x, y]);
                     }
+                    sort_plot_points_by_x(&mut pts);
                     if !pts.is_empty() {
                         return Some((ch.display_name.clone(), pts));
                     }
@@ -4419,6 +4422,41 @@ fn stroke_to_line_style(s: StrokeStyleKind) -> LineStyle {
         StrokeStyleKind::Dashed => LineStyle::dashed_dense(),
         StrokeStyleKind::Dotted => LineStyle::dotted_dense(),
     }
+}
+
+/// Order line/step/area vertices by ascending X so unsorted rows do not zigzag.
+fn sort_plot_points_by_x(pts: &mut Vec<[f64; 2]>) {
+    if pts.len() < 2 {
+        return;
+    }
+    // Already monotonic (typical CSV / DAQ) — skip the sort.
+    let mut sorted = true;
+    for w in pts.windows(2) {
+        if w[0][0] > w[1][0] {
+            sorted = false;
+            break;
+        }
+    }
+    if sorted {
+        return;
+    }
+    pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+}
+
+/// Sparkline in time order: bucket Y after sorting by dataset X (matches main chart).
+fn sparkline_by_x(x: &[f64], values: &[f64], out_len: usize) -> Vec<f64> {
+    let n = values.len().min(x.len());
+    if n == 0 || out_len == 0 {
+        return vec![0.0; out_len];
+    }
+    let already = x.windows(2).all(|w| w[0] <= w[1]);
+    if already {
+        return sparkline(&values[..n], out_len);
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| x[a].partial_cmp(&x[b]).unwrap_or(std::cmp::Ordering::Equal));
+    let ordered: Vec<f64> = order.into_iter().map(|i| values[i]).collect();
+    sparkline(&ordered, out_len)
 }
 
 /// Expand samples into stair-steps for ChartKind::Step.
