@@ -2447,9 +2447,11 @@ impl ChartBenchApp {
                 ui.label(format!("Records: {}", st.records));
                 ui.label(format!("Channels: {}", st.channels));
                 if st.x_is_time {
+                    // Human-readable UTC range (same chrono format as hover readout)
                     ui.label(format!(
-                        "Time (unix s): {:.3} .. {:.3}",
-                        st.x_min, st.x_max
+                        "Time: {} → {}",
+                        format_unix_full(st.x_min),
+                        format_unix_full(st.x_max)
                     ));
                 } else {
                     ui.label(format!("X index: {:.0} .. {:.0}", st.x_min, st.x_max));
