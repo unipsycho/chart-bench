@@ -6,8 +6,6 @@ Open dumps fast, preview channels, drag onto charts, dual Y-axes, multi-chart la
 
 ## Screenshots
 
-![csv-bench UI on M17](docs/screenshots/csv-bench-m17-ui.png)
-
 Chart toolbar (Options · Save PNG · Export CSV · …):
 
 ![Chart toolbar](docs/screenshots/csv-bench-chart-toolbar.png)
