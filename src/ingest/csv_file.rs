@@ -1,5 +1,6 @@
+use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use uuid::Uuid;
@@ -7,21 +8,189 @@ use uuid::Uuid;
 use crate::model::{ChannelMeta, Dataset, HeaderRole, ParsePlan, XMode};
 
 use super::detect::{detect_parse_plan, sniff_delimiter, RawTable};
+use super::parquet_file::{RowWindow, MAX_LOAD_ROWS, MAX_PARQUET_FILE_BYTES};
 use super::time_detect::parse_time_value;
 
+/// Same soft ceiling as Parquet (~10 GiB).
+pub const MAX_CSV_FILE_BYTES: u64 = MAX_PARQUET_FILE_BYTES;
+
+/// Cheap probe: file size + newline count (≈ row count for well-formed CSV).
+#[derive(Debug, Clone)]
+pub struct CsvProbe {
+    pub file_bytes: u64,
+    pub approx_rows: usize,
+}
+
+pub fn probe_csv_path(path: &Path) -> anyhow::Result<CsvProbe> {
+    let mut file = File::open(path).map_err(|e| anyhow::anyhow!("open {}: {e}", path.display()))?;
+    let file_bytes = file.metadata()?.len();
+    if file_bytes > MAX_CSV_FILE_BYTES {
+        anyhow::bail!(
+            "CSV file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
+            file_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            MAX_CSV_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
+        );
+    }
+    let mut approx_rows = 0usize;
+    let mut buf = [0u8; 1024 * 256];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        approx_rows += bytecount_newlines(&buf[..n]);
+    }
+    // Files that don't end with a newline still have a last row.
+    if file_bytes > 0 {
+        approx_rows = approx_rows.max(1);
+    }
+    Ok(CsvProbe {
+        file_bytes,
+        approx_rows,
+    })
+}
+
+fn bytecount_newlines(buf: &[u8]) -> usize {
+    buf.iter().filter(|&&b| b == b'\n').count()
+}
+
 pub fn load_csv_path(path: &Path) -> anyhow::Result<Dataset> {
-    let text = std::fs::read_to_string(path)?;
-    if text.trim().is_empty() {
+    let probe = probe_csv_path(path)?;
+    let window = if probe.approx_rows > MAX_LOAD_ROWS {
+        RowWindow::Head
+    } else {
+        RowWindow::All
+    };
+    load_csv_path_window(path, window)
+}
+
+/// Load CSV with an optional head/tail window (hard-capped at [`MAX_LOAD_ROWS`]).
+pub fn load_csv_path_window(path: &Path, window: RowWindow) -> anyhow::Result<Dataset> {
+    let meta_len = std::fs::metadata(path)
+        .map(|m| m.len())
+        .map_err(|e| anyhow::anyhow!("stat {}: {e}", path.display()))?;
+    if meta_len > MAX_CSV_FILE_BYTES {
+        anyhow::bail!(
+            "CSV file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
+            meta_len as f64 / (1024.0 * 1024.0 * 1024.0),
+            MAX_CSV_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
+        );
+    }
+
+    // Under the row cap: keep the simple whole-file path.
+    let approx = probe_csv_path(path)?.approx_rows;
+    if approx <= MAX_LOAD_ROWS {
+        let text = std::fs::read_to_string(path)?;
+        if text.trim().is_empty() {
+            anyhow::bail!("empty file: {}", path.display());
+        }
+        let delim = sniff_delimiter(&text);
+        let table = parse_raw(&text, delim)?;
+        if table.rows.is_empty() {
+            anyhow::bail!("no rows parsed: {}", path.display());
+        }
+        let mut plan = detect_parse_plan(&table);
+        plan.delimiter = delim;
+        return build_dataset(path, table, plan, meta_len, RowWindow::All, approx);
+    }
+
+    load_csv_stream_window(path, window, meta_len, approx)
+}
+
+fn fmt_csv_count(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+/// Stream large CSV: detect plan from the head, then keep first or last 10 M data rows.
+fn load_csv_stream_window(
+    path: &Path,
+    window: RowWindow,
+    meta_len: u64,
+    total_approx: usize,
+) -> anyhow::Result<Dataset> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::with_capacity(1024 * 256, file);
+    let mut sample = String::new();
+    // Sniff delimiter + header plan from the first ~256 KiB / 64 lines.
+    {
+        let mut buf = [0u8; 1024 * 256];
+        let n = reader.read(&mut buf)?;
+        sample.push_str(&String::from_utf8_lossy(&buf[..n]));
+    }
+    if sample.trim().is_empty() {
         anyhow::bail!("empty file: {}", path.display());
     }
-    let delim = sniff_delimiter(&text);
-    let table = parse_raw(&text, delim)?;
-    if table.rows.is_empty() {
+    let delim = sniff_delimiter(&sample);
+    let sample_table = parse_raw(&sample, delim)?;
+    let mut plan = detect_parse_plan(&sample_table);
+    plan.delimiter = delim;
+    let header_rows = plan.header_rows;
+    let data_start = plan.data_start_row;
+
+    // Rewind and stream every physical row.
+    let file = File::open(path)?;
+    let reader = BufReader::with_capacity(1024 * 256, file);
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .delimiter(delim)
+        .flexible(true)
+        .from_reader(reader);
+
+    let mut header: Vec<Vec<String>> = Vec::new();
+    let mut data: VecDeque<Vec<String>> = VecDeque::new();
+    let take = MAX_LOAD_ROWS;
+    let effective = if total_approx <= MAX_LOAD_ROWS {
+        RowWindow::All
+    } else if matches!(window, RowWindow::Tail) {
+        RowWindow::Tail
+    } else {
+        RowWindow::Head
+    };
+
+    for (i, rec) in rdr.records().enumerate() {
+        let rec = rec?;
+        let row: Vec<String> = rec.iter().map(|s| s.to_string()).collect();
+        if i < data_start {
+            if i < header_rows {
+                header.push(row);
+            }
+            continue;
+        }
+        match effective {
+            RowWindow::All | RowWindow::Head => {
+                if data.len() < take {
+                    data.push_back(row);
+                } else {
+                    break;
+                }
+            }
+            RowWindow::Tail => {
+                data.push_back(row);
+                if data.len() > take {
+                    data.pop_front();
+                }
+            }
+        }
+    }
+
+    if header.is_empty() && data.is_empty() {
         anyhow::bail!("no rows parsed: {}", path.display());
     }
+    let mut rows = header;
+    rows.extend(data);
+    let table = RawTable { rows };
+    // Re-detect on the assembled table so width/roles stay consistent.
     let mut plan = detect_parse_plan(&table);
     plan.delimiter = delim;
-    build_dataset(path, table, plan, text.len() as u64)
+    build_dataset(path, table, plan, meta_len, effective, total_approx)
 }
 
 /// Build a Dataset from an already-materialized string table (Parquet → cells, etc.).
@@ -33,8 +202,9 @@ pub(crate) fn dataset_from_raw_table(
     if table.rows.is_empty() {
         anyhow::bail!("no rows: {}", path.display());
     }
+    let nrow = table.rows.len();
     let plan = detect_parse_plan(&table);
-    build_dataset(path, table, plan, last_offset)
+    build_dataset(path, table, plan, last_offset, RowWindow::All, nrow)
 }
 
 pub fn append_csv_growth(ds: &mut Dataset) -> anyhow::Result<usize> {
@@ -107,13 +277,29 @@ fn build_dataset(
     table: RawTable,
     plan: ParsePlan,
     last_offset: u64,
+    window: RowWindow,
+    total_rows: usize,
 ) -> anyhow::Result<Dataset> {
     let id = Uuid::new_v4();
-    let display_name = path
+    let file_stem = path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("file")
         .to_string();
+    let data_n = table.rows.len().saturating_sub(plan.data_start_row);
+    let display_name = match window {
+        RowWindow::All => file_stem,
+        RowWindow::Head => format!(
+            "{file_stem} (first {} of {} rows)",
+            fmt_csv_count(data_n),
+            fmt_csv_count(total_rows.max(data_n))
+        ),
+        RowWindow::Tail => format!(
+            "{file_stem} (last {} of {} rows)",
+            fmt_csv_count(data_n),
+            fmt_csv_count(total_rows.max(data_n))
+        ),
+    };
 
     let names_row = plan.roles.iter().position(|r| *r == HeaderRole::Names);
     let nodes_row = plan.roles.iter().position(|r| *r == HeaderRole::Nodes);
@@ -339,7 +525,8 @@ pub fn load_xlsx_workbook(path: &Path) -> anyhow::Result<Vec<Dataset>> {
         }
         let table = RawTable { rows };
         let plan = detect_parse_plan(&table);
-        let mut ds = build_dataset(path, table, plan, meta.len())?;
+        let nrow = table.rows.len();
+        let mut ds = build_dataset(path, table, plan, meta.len(), RowWindow::All, nrow)?;
         ds.display_name = format!("{file_stem} :: {sheet_name}");
         out.push(ds);
     }
