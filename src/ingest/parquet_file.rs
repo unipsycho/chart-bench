@@ -2,9 +2,10 @@
 //!
 //! Codecs: **UNCOMPRESSED**, **SNAPPY**, **GZIP** (`flate2`), **ZSTD**, **LZ4**, **BROTLI**.
 //!
-//! Loads **all** rows for files under [`MAX_PARQUET_FILE_BYTES`] (~10 GiB). Larger
-//! files are refused with a clear error. Row groups are streamed into column
-//! vectors (no 250k-row subsample). Optional progress callback for UI status.
+//! Files under [`MAX_PARQUET_FILE_BYTES`] (~10 GiB) may be opened. Larger files are
+//! refused. Row count over [`MAX_LOAD_ROWS`] (10 M) loads a head or tail window
+//! only — the UI asks which. Under 10 M rows, the full file is loaded. Optional
+//! progress callback for UI status.
 
 use std::fs::File;
 use std::path::Path;
@@ -21,15 +22,75 @@ use crate::model::{ChannelMeta, Dataset, HeaderRole, ParsePlan, XAxis, XMode};
 /// Soft file-size ceiling (~10 GiB). Above this we refuse rather than OOM/hang.
 pub const MAX_PARQUET_FILE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
-/// Progress while streaming row groups: (row_groups_done, row_groups_total, rows_kept, rows_total).
+/// Hard row cap for a single load. Above this the UI offers first vs last window.
+pub const MAX_LOAD_ROWS: usize = 10_000_000;
+
+/// Which slice of a large file to materialize (capped at [`MAX_LOAD_ROWS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowWindow {
+    /// Every row (only valid / used when total ≤ [`MAX_LOAD_ROWS`]).
+    All,
+    /// First [`MAX_LOAD_ROWS`] rows (beginning / head).
+    Head,
+    /// Last [`MAX_LOAD_ROWS`] rows (end / tail).
+    Tail,
+}
+
+impl RowWindow {
+    pub fn label(self) -> &'static str {
+        match self {
+            RowWindow::All => "all",
+            RowWindow::Head => "first",
+            RowWindow::Tail => "last",
+        }
+    }
+}
+
+/// Cheap open: size + row count from footer metadata (no data pages).
+#[derive(Debug, Clone)]
+pub struct ParquetProbe {
+    pub file_bytes: u64,
+    pub total_rows: usize,
+}
+
+/// Progress while streaming: (row_groups_done, row_groups_total, rows_kept, rows_target).
 pub type ParquetProgress<'a> = dyn FnMut(usize, usize, usize, usize) + 'a;
 
+pub fn probe_parquet_path(path: &Path) -> anyhow::Result<ParquetProbe> {
+    let file = File::open(path).map_err(|e| anyhow::anyhow!("open {}: {e}", path.display()))?;
+    let file_bytes = file.metadata()?.len();
+    if file_bytes > MAX_PARQUET_FILE_BYTES {
+        anyhow::bail!(
+            "Parquet file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
+            file_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            MAX_PARQUET_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
+        );
+    }
+    let reader = SerializedFileReader::new(file).map_err(map_parquet_err)?;
+    let total_rows = reader.metadata().file_metadata().num_rows().max(0) as usize;
+    if total_rows == 0 {
+        anyhow::bail!("parquet has no data rows: {}", path.display());
+    }
+    Ok(ParquetProbe {
+        file_bytes,
+        total_rows,
+    })
+}
+
 pub fn load_parquet_path(path: &Path) -> anyhow::Result<Dataset> {
-    load_parquet_path_with_progress(path, &mut |_, _, _, _| {})
+    // Session/preset restore: under cap → all; over → first 10 M (no UI prompt).
+    let probe = probe_parquet_path(path)?;
+    let window = if probe.total_rows > MAX_LOAD_ROWS {
+        RowWindow::Head
+    } else {
+        RowWindow::All
+    };
+    load_parquet_path_with_progress(path, window, &mut |_, _, _, _| {})
 }
 
 pub fn load_parquet_path_with_progress(
     path: &Path,
+    window: RowWindow,
     progress: &mut ParquetProgress<'_>,
 ) -> anyhow::Result<Dataset> {
     let file = File::open(path).map_err(|e| anyhow::anyhow!("open {}: {e}", path.display()))?;
@@ -57,25 +118,55 @@ pub fn load_parquet_path_with_progress(
         anyhow::bail!("parquet has no data rows: {}", path.display());
     }
 
+    let (skip_before, take_max, effective) = resolve_row_window(total_rows, window);
     let names: Vec<String> = (0..n_cols)
         .map(|i| schema.column(i).name().to_string())
         .collect();
     let x_col = pick_x_column(schema, &names);
 
-    // Full load — pre-size columns so large soaks don't thrash realloc.
+    // Pre-size to the window we will keep (not the whole file).
     let mut raw_cols: Vec<Vec<f64>> = (0..n_cols)
-        .map(|_| Vec::with_capacity(total_rows))
+        .map(|_| Vec::with_capacity(take_max))
         .collect();
     let mut kept = 0usize;
+    let mut global_i = 0usize;
 
-    progress(0, n_rg, 0, total_rows);
+    // Skip whole row groups that sit entirely before the window (tail).
+    let mut start_rg = 0usize;
+    let mut skip_in_rg = skip_before;
+    if skip_before > 0 {
+        let mut off = 0usize;
+        for rg_i in 0..n_rg {
+            let rg_rows = md.row_group(rg_i).num_rows().max(0) as usize;
+            if off + rg_rows <= skip_before {
+                off += rg_rows;
+                continue;
+            }
+            start_rg = rg_i;
+            skip_in_rg = skip_before - off;
+            break;
+        }
+        global_i = skip_before - skip_in_rg;
+    }
 
-    for rg_i in 0..n_rg {
+    let rgs_to_read = n_rg.saturating_sub(start_rg);
+    progress(0, rgs_to_read.max(1), 0, take_max);
+
+    'rg: for (local_i, rg_i) in (start_rg..n_rg).enumerate() {
         let rg = reader.get_row_group(rg_i).map_err(map_parquet_err)?;
         let iter = rg.get_row_iter(None).map_err(map_parquet_err)?;
+        let mut skip_left = if rg_i == start_rg { skip_in_rg } else { 0 };
 
         for row_res in iter {
             let row = row_res.map_err(map_parquet_err)?;
+            if skip_left > 0 {
+                skip_left -= 1;
+                global_i += 1;
+                continue;
+            }
+            if kept >= take_max {
+                break 'rg;
+            }
             let mut col_i = 0usize;
             for (_name, field) in row.get_column_iter() {
                 if col_i >= n_cols {
@@ -89,8 +180,13 @@ pub fn load_parquet_path_with_progress(
                 col_i += 1;
             }
             kept += 1;
+            global_i += 1;
         }
-        progress(rg_i + 1, n_rg, kept, total_rows);
+        progress(local_i + 1, rgs_to_read.max(1), kept, take_max);
+        if kept >= take_max {
+            break;
+        }
+        let _ = global_i;
     }
 
     if kept == 0 {
@@ -105,7 +201,26 @@ pub fn load_parquet_path_with_progress(
         }
     }
 
-    build_dataset_from_columns(path, &names, raw_cols, x_col, total_rows, meta_len)
+    build_dataset_from_columns(
+        path,
+        &names,
+        raw_cols,
+        x_col,
+        total_rows,
+        meta_len,
+        effective,
+    )
+}
+
+/// Map requested window + file size → (rows to skip, rows to keep, label kind).
+fn resolve_row_window(total_rows: usize, window: RowWindow) -> (usize, usize, RowWindow) {
+    if total_rows <= MAX_LOAD_ROWS {
+        return (0, total_rows, RowWindow::All);
+    }
+    match window {
+        RowWindow::All | RowWindow::Head => (0, MAX_LOAD_ROWS, RowWindow::Head),
+        RowWindow::Tail => (total_rows - MAX_LOAD_ROWS, MAX_LOAD_ROWS, RowWindow::Tail),
+    }
 }
 
 fn pick_x_column(
@@ -164,6 +279,7 @@ fn build_dataset_from_columns(
     x_col: Option<usize>,
     total_rows: usize,
     last_offset: u64,
+    window: RowWindow,
 ) -> anyhow::Result<Dataset> {
     let n = raw_cols.first().map(|c| c.len()).unwrap_or(0);
     let id = Uuid::new_v4();
@@ -172,16 +288,18 @@ fn build_dataset_from_columns(
         .and_then(|s| s.to_str())
         .unwrap_or("file")
         .to_string();
-    // Full load under the size cap — name is the file stem (no “N / M rows” subsample tag).
-    let display_name = if n < total_rows {
-        // Truncated only if the file itself was short (defensive); not a sample cap.
-        format!(
-            "{file_stem} ({} / {} rows)",
+    let display_name = match window {
+        RowWindow::All => file_stem,
+        RowWindow::Head => format!(
+            "{file_stem} (first {} of {} rows)",
             fmt_count(n),
             fmt_count(total_rows)
-        )
-    } else {
-        file_stem
+        ),
+        RowWindow::Tail => format!(
+            "{file_stem} (last {} of {} rows)",
+            fmt_count(n),
+            fmt_count(total_rows)
+        ),
     };
 
     // pick_x_column only selects timestamp-typed or time-named columns.
@@ -382,6 +500,34 @@ mod tests {
         assert_eq!(MAX_PARQUET_FILE_BYTES, 10 * 1024 * 1024 * 1024);
     }
 
+    #[test]
+    fn max_load_rows_is_ten_million() {
+        assert_eq!(MAX_LOAD_ROWS, 10_000_000);
+    }
+
+    #[test]
+    fn resolve_window_under_cap_is_all() {
+        let (skip, take, w) = resolve_row_window(8_000_000, RowWindow::Head);
+        assert_eq!((skip, take, w), (0, 8_000_000, RowWindow::All));
+        let (skip, take, w) = resolve_row_window(8_000_000, RowWindow::Tail);
+        assert_eq!((skip, take, w), (0, 8_000_000, RowWindow::All));
+    }
+
+    #[test]
+    fn resolve_window_over_cap_head_and_tail() {
+        let total = 17_280_000usize;
+        let (skip, take, w) = resolve_row_window(total, RowWindow::Head);
+        assert_eq!((skip, take, w), (0, MAX_LOAD_ROWS, RowWindow::Head));
+        let (skip, take, w) = resolve_row_window(total, RowWindow::Tail);
+        assert_eq!(
+            (skip, take, w),
+            (total - MAX_LOAD_ROWS, MAX_LOAD_ROWS, RowWindow::Tail)
+        );
+        // All over the cap collapses to Head (safety).
+        let (skip, take, w) = resolve_row_window(total, RowWindow::All);
+        assert_eq!((skip, take, w), (0, MAX_LOAD_ROWS, RowWindow::Head));
+    }
+
     fn sample(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("samples/parquet")
@@ -396,6 +542,11 @@ mod tests {
     fn large_daq() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("samples/large/daq_multichannel_1khz.parquet")
+    }
+
+    fn large_walk_20d() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("samples/large/random_walk_2ch.parquet")
     }
 
     #[test]
@@ -494,6 +645,62 @@ mod tests {
         assert!(!ds.channels.is_empty());
     }
 
+    #[test]
+    fn probe_random_walk_20d_over_ten_m() {
+        let path = large_walk_20d();
+        if !path.exists() {
+            return;
+        }
+        let p = probe_parquet_path(&path).expect("probe");
+        assert!(
+            p.total_rows > MAX_LOAD_ROWS,
+            "expected >10M rows, got {}",
+            p.total_rows
+        );
+        assert!(p.file_bytes < MAX_PARQUET_FILE_BYTES);
+    }
+
+    #[test]
+    fn loads_random_walk_20d_head_and_tail_capped() {
+        let path = large_walk_20d();
+        if !path.exists() {
+            return;
+        }
+        let probe = probe_parquet_path(&path).expect("probe");
+        let head = load_parquet_path_with_progress(&path, RowWindow::Head, &mut |_, _, _, _| {})
+            .expect("head");
+        assert_eq!(head.record_count(), MAX_LOAD_ROWS);
+        assert!(
+            head.display_name.contains("first"),
+            "name={}",
+            head.display_name
+        );
+        assert!(
+            head.display_name.contains(&fmt_count(probe.total_rows))
+                || head.display_name.contains("17,280,000"),
+            "name={}",
+            head.display_name
+        );
+
+        let tail = load_parquet_path_with_progress(&path, RowWindow::Tail, &mut |_, _, _, _| {})
+            .expect("tail");
+        assert_eq!(tail.record_count(), MAX_LOAD_ROWS);
+        assert!(
+            tail.display_name.contains("last"),
+            "name={}",
+            tail.display_name
+        );
+        // Head and tail should not be identical series (20d walk drifts).
+        if head.x_is_time && tail.x_is_time {
+            let hx = head.x.first().copied().unwrap_or(0.0);
+            let tx = tail.x.first().copied().unwrap_or(0.0);
+            assert!(
+                tx > hx + 1000.0,
+                "tail should start later than head ({tx} vs {hx})"
+            );
+        }
+    }
+
     /// Full NYC load is huge — only when CHART_BENCH_FULL_LARGE=1.
     #[test]
     fn loads_nyc_yellow_taxi_large_full() {
@@ -504,26 +711,23 @@ mod tests {
         if std::env::var_os("CHART_BENCH_FULL_LARGE").is_none() {
             return;
         }
+        // Interactive path would prompt; restore/default uses Head for >10M.
         let ds = load_parquet_path(&path).expect("nyc parquet");
         assert!(
             ds.channels.len() >= 10,
             "expected many taxi channels, got {}",
             ds.channels.len()
         );
-        assert!(
-            ds.record_count() > 1_000_000,
-            "full load expected, rows={}",
-            ds.record_count()
-        );
+        assert_eq!(ds.record_count(), MAX_LOAD_ROWS);
         assert!(ds.x_is_time, "pickup datetime should be X");
         assert!(
-            !ds.display_name.contains('/'),
-            "should not tag subsample: {}",
+            ds.display_name.contains("first"),
+            "should tag first window: {}",
             ds.display_name
         );
     }
 
-    /// Full 8M-row DAQ soak — opt in with CHART_BENCH_FULL_LARGE=1 (slow / memory-heavy).
+    /// Full 8M-row DAQ soak — under the 10 M cap so All loads.
     #[test]
     fn loads_daq_soak_full_continuous_time() {
         let path = large_daq();
@@ -538,12 +742,12 @@ mod tests {
         assert_eq!(
             ds.record_count(),
             8_000_000,
-            "full DAQ load (no 250k sample)"
+            "full DAQ load under 10M cap"
         );
         assert!(ds.channels.len() >= 12, "channels={}", ds.channels.len());
         assert!(
-            !ds.display_name.contains('/'),
-            "should not tag subsample: {}",
+            !ds.display_name.contains("first") && !ds.display_name.contains("last"),
+            "under-cap should not tag window: {}",
             ds.display_name
         );
 

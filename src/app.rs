@@ -12,8 +12,9 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use uuid::Uuid;
 
 use crate::ingest::{
-    append_csv_growth, load_csv_path, load_mat_path, load_mdf_path, load_parquet_path,
-    load_parquet_path_with_progress, load_sqlite_path, load_witsml_path, load_xlsx_workbook,
+    append_csv_growth, load_csv_path, load_csv_path_window, load_mat_path, load_mdf_path,
+    load_parquet_path, load_parquet_path_with_progress, load_sqlite_path, load_witsml_path,
+    load_xlsx_workbook, probe_csv_path, probe_parquet_path, RowWindow, MAX_LOAD_ROWS,
     MAX_PARQUET_FILE_BYTES,
 };
 use crate::model::{
@@ -63,8 +64,10 @@ pub struct ChartBenchApp {
     /// Chart ids that should snap plot X/Y on next first data view (empty → series/preview).
     /// Cleared after one auto-fit so a later manual zoom is kept when adding more series.
     reset_plot_auto: HashSet<Uuid>,
-    /// Background Parquet open (full-row load) — progress + result on the UI thread.
+    /// Background Parquet open (windowed load) — progress + result on the UI thread.
     pending_parquet: Option<PendingParquetLoad>,
+    /// >10 M-row open: wait for first/last choice before starting the load.
+    pending_row_pick: Option<PendingRowPick>,
     pub status: String,
     pub last_save: Instant,
     pub presets: PresetLibrary,
@@ -103,6 +106,7 @@ impl Default for ChartBenchApp {
             pending_png: None,
             reset_plot_auto: HashSet::new(),
             pending_parquet: None,
+            pending_row_pick: None,
             status: "Open a CSV / XLSX or load the demo sample.".into(),
             last_save: Instant::now(),
             presets: load_presets(),
@@ -129,7 +133,7 @@ impl Default for ChartBenchApp {
     }
 }
 
-/// Messages from a background Parquet full-row load.
+/// Messages from a background Parquet windowed load.
 enum ParquetLoadMsg {
     Progress {
         rg_done: usize,
@@ -142,8 +146,24 @@ enum ParquetLoadMsg {
 
 struct PendingParquetLoad {
     path_display: String,
+    window: RowWindow,
+    file_total_rows: usize,
     started: Instant,
     rx: Receiver<ParquetLoadMsg>,
+}
+
+/// Format kind waiting on the >10 M-row first/last dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowPickKind {
+    Parquet,
+    Csv,
+}
+
+struct PendingRowPick {
+    path: PathBuf,
+    kind: RowPickKind,
+    total_rows: usize,
+    file_bytes: u64,
 }
 
 impl ChartBenchApp {
@@ -334,22 +354,20 @@ impl ChartBenchApp {
         let ds = match ext.as_str() {
             "parquet" | "pq" => {
                 if parquet_async {
-                    self.start_parquet_load(path)?;
+                    self.begin_parquet_open(path)?;
                     return Ok(());
                 }
-                // Size check before a long blocking restore load.
-                let meta_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                if meta_len > MAX_PARQUET_FILE_BYTES {
-                    anyhow::bail!(
-                        "Parquet file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
-                        meta_len as f64 / (1024.0 * 1024.0 * 1024.0),
-                        MAX_PARQUET_FILE_BYTES as f64 / (1024.0 * 1024.0 * 1024.0)
-                    );
-                }
+                // Session/preset restore: under 10 M → all; over → first 10 M (no dialog).
                 load_parquet_path(&path)?
             }
             "mat" => load_mat_path(&path)?,
-            _ => load_csv_path(&path)?,
+            _ => {
+                if parquet_async && matches!(ext.as_str(), "csv" | "tsv" | "txt") {
+                    self.begin_csv_open(path)?;
+                    return Ok(());
+                }
+                load_csv_path(&path)?
+            }
         };
         self.finish_dataset_load(ds);
         Ok(())
@@ -369,14 +387,74 @@ impl ChartBenchApp {
         self.datasets.push(ds);
     }
 
-    /// Refuse >10 GiB up front; stream full rows on a worker with status progress.
-    fn start_parquet_load(&mut self, path: PathBuf) -> anyhow::Result<()> {
+    /// Interactive Parquet open: probe → dialog if >10 M rows → background windowed load.
+    fn begin_parquet_open(&mut self, path: PathBuf) -> anyhow::Result<()> {
         if self.pending_parquet.is_some() {
             anyhow::bail!("Already loading a Parquet file — wait for it to finish.");
         }
-        let meta_len = std::fs::metadata(&path)
-            .map(|m| m.len())
-            .map_err(|e| anyhow::anyhow!("stat {}: {e}", path.display()))?;
+        if self.pending_row_pick.is_some() {
+            anyhow::bail!("Choose first or last 10 M rows for the open file first.");
+        }
+        let probe = probe_parquet_path(&path)?;
+        if probe.total_rows > MAX_LOAD_ROWS {
+            self.status = format!(
+                "{} has {} rows — choose first or last {} to load.",
+                path.file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("file"),
+                fmt_status_count(probe.total_rows),
+                fmt_status_count(MAX_LOAD_ROWS)
+            );
+            self.pending_row_pick = Some(PendingRowPick {
+                path,
+                kind: RowPickKind::Parquet,
+                total_rows: probe.total_rows,
+                file_bytes: probe.file_bytes,
+            });
+            return Ok(());
+        }
+        self.start_parquet_load(path, RowWindow::All, probe.total_rows, probe.file_bytes)
+    }
+
+    /// Interactive CSV open: probe → dialog if >10 M lines → sync windowed load.
+    fn begin_csv_open(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        if self.pending_row_pick.is_some() {
+            anyhow::bail!("Choose first or last 10 M rows for the open file first.");
+        }
+        let probe = probe_csv_path(&path)?;
+        if probe.approx_rows > MAX_LOAD_ROWS {
+            self.status = format!(
+                "{} has ~{} rows — choose first or last {} to load.",
+                path.file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("file"),
+                fmt_status_count(probe.approx_rows),
+                fmt_status_count(MAX_LOAD_ROWS)
+            );
+            self.pending_row_pick = Some(PendingRowPick {
+                path,
+                kind: RowPickKind::Csv,
+                total_rows: probe.approx_rows,
+                file_bytes: probe.file_bytes,
+            });
+            return Ok(());
+        }
+        let ds = load_csv_path_window(&path, RowWindow::All)?;
+        self.finish_dataset_load(ds);
+        Ok(())
+    }
+
+    /// Refuse >10 GiB up front; stream a row window on a worker with status progress.
+    fn start_parquet_load(
+        &mut self,
+        path: PathBuf,
+        window: RowWindow,
+        file_total_rows: usize,
+        meta_len: u64,
+    ) -> anyhow::Result<()> {
+        if self.pending_parquet.is_some() {
+            anyhow::bail!("Already loading a Parquet file — wait for it to finish.");
+        }
         if meta_len > MAX_PARQUET_FILE_BYTES {
             anyhow::bail!(
                 "Parquet file is {:.1} GiB (limit {:.0} GiB). Open a smaller file or split the data.",
@@ -386,38 +464,75 @@ impl ChartBenchApp {
         }
         let path_display = path.display().to_string();
         let gib = meta_len as f64 / (1024.0 * 1024.0 * 1024.0);
+        let win_note = match window {
+            RowWindow::All => String::new(),
+            RowWindow::Head => format!(
+                " — first {} of {}",
+                fmt_status_count(MAX_LOAD_ROWS.min(file_total_rows)),
+                fmt_status_count(file_total_rows)
+            ),
+            RowWindow::Tail => format!(
+                " — last {} of {}",
+                fmt_status_count(MAX_LOAD_ROWS.min(file_total_rows)),
+                fmt_status_count(file_total_rows)
+            ),
+        };
         self.status = if gib >= 0.05 {
-            format!("Loading {path_display} ({gib:.2} GiB)…")
+            format!("Loading {path_display} ({gib:.2} GiB{win_note})…")
         } else {
-            format!("Loading {path_display}…")
+            format!("Loading {path_display}{win_note}…")
         };
         let (tx, rx) = mpsc::channel();
         let path_bg = path.clone();
         std::thread::spawn(move || {
             let mut last = Instant::now();
-            let result = load_parquet_path_with_progress(&path_bg, &mut |rg_done, rg_total, rows, rows_total| {
-                let due = last.elapsed() >= Duration::from_millis(150) || rg_done == rg_total;
-                if due {
-                    let _ = tx.send(ParquetLoadMsg::Progress {
-                        rg_done,
-                        rg_total,
-                        rows,
-                        rows_total,
-                    });
-                    last = Instant::now();
-                }
-            });
-            let _ = tx.send(ParquetLoadMsg::Done(
-                result.map_err(|e| e.to_string()),
-            ));
+            let result = load_parquet_path_with_progress(
+                &path_bg,
+                window,
+                &mut |rg_done, rg_total, rows, rows_total| {
+                    let due = last.elapsed() >= Duration::from_millis(150) || rg_done == rg_total;
+                    if due {
+                        let _ = tx.send(ParquetLoadMsg::Progress {
+                            rg_done,
+                            rg_total,
+                            rows,
+                            rows_total,
+                        });
+                        last = Instant::now();
+                    }
+                },
+            );
+            let _ = tx.send(ParquetLoadMsg::Done(result.map_err(|e| e.to_string())));
         });
         self.pending_parquet = Some(PendingParquetLoad {
             path_display,
+            window,
+            file_total_rows,
             started: Instant::now(),
             rx,
         });
         self.push_recent(&path.display().to_string());
         Ok(())
+    }
+
+    /// Apply the user's first/last choice from the large-file dialog.
+    fn confirm_row_pick(&mut self, window: RowWindow) {
+        let Some(pick) = self.pending_row_pick.take() else {
+            return;
+        };
+        match pick.kind {
+            RowPickKind::Parquet => {
+                if let Err(e) =
+                    self.start_parquet_load(pick.path, window, pick.total_rows, pick.file_bytes)
+                {
+                    self.status = format!("Open failed: {e}");
+                }
+            }
+            RowPickKind::Csv => match load_csv_path_window(&pick.path, window) {
+                Ok(ds) => self.finish_dataset_load(ds),
+                Err(e) => self.status = format!("Open failed: {e}"),
+            },
+        }
     }
 
     /// Drain background Parquet progress / completion (call each frame).
@@ -439,10 +554,25 @@ impl ChartBenchApp {
             }
         }
         if let Some((rg_done, rg_total, rows, rows_total)) = progress {
-            let name = self
+            let (name, win_note) = self
                 .pending_parquet
                 .as_ref()
-                .map(|p| p.path_display.clone())
+                .map(|p| {
+                    let note = match p.window {
+                        RowWindow::All => String::new(),
+                        RowWindow::Head => format!(
+                            ", first {} of {}",
+                            fmt_status_count(MAX_LOAD_ROWS.min(p.file_total_rows)),
+                            fmt_status_count(p.file_total_rows)
+                        ),
+                        RowWindow::Tail => format!(
+                            ", last {} of {}",
+                            fmt_status_count(MAX_LOAD_ROWS.min(p.file_total_rows)),
+                            fmt_status_count(p.file_total_rows)
+                        ),
+                    };
+                    (p.path_display.clone(), note)
+                })
                 .unwrap_or_default();
             let pct = if rg_total > 0 {
                 (rg_done * 100) / rg_total
@@ -450,18 +580,18 @@ impl ChartBenchApp {
                 0
             };
             self.status = format!(
-                "Loading {name}… {pct}% ({} / {} rows, rg {rg_done}/{rg_total})",
+                "Loading {name}… {pct}% ({} / {} rows{win_note}, rg {rg_done}/{rg_total})",
                 fmt_status_count(rows),
                 fmt_status_count(rows_total)
             );
             ctx.request_repaint();
         }
         if let Some(result) = done {
-            let elapsed = self
+            let (elapsed, window, file_total) = self
                 .pending_parquet
                 .as_ref()
-                .map(|p| p.started.elapsed())
-                .unwrap_or_default();
+                .map(|p| (p.started.elapsed(), p.window, p.file_total_rows))
+                .unwrap_or((Duration::ZERO, RowWindow::All, 0));
             self.pending_parquet = None;
             match result {
                 Ok(ds) => {
@@ -469,9 +599,21 @@ impl ChartBenchApp {
                     let ch = ds.channels.len();
                     let name = ds.display_name.clone();
                     self.finish_dataset_load(ds);
+                    let window_note = match window {
+                        RowWindow::All => format!("{} records", fmt_status_count(rows)),
+                        RowWindow::Head => format!(
+                            "first {} of {} rows",
+                            fmt_status_count(rows),
+                            fmt_status_count(file_total)
+                        ),
+                        RowWindow::Tail => format!(
+                            "last {} of {} rows",
+                            fmt_status_count(rows),
+                            fmt_status_count(file_total)
+                        ),
+                    };
                     self.status = format!(
-                        "Loaded {name} — {ch} channels, {} records in {:.1}s",
-                        fmt_status_count(rows),
+                        "Loaded {name} — {ch} channels, {window_note} in {:.1}s",
                         elapsed.as_secs_f32()
                     );
                 }
@@ -483,6 +625,105 @@ impl ChartBenchApp {
         } else if self.pending_parquet.is_some() {
             // Keep the UI alive while the worker streams row groups.
             ctx.request_repaint_after(Duration::from_millis(100));
+        }
+    }
+
+    /// Centered modal: load first vs last 10 M rows for oversized files.
+    fn show_row_window_dialog(&mut self, ctx: &egui::Context) {
+        let Some(pick) = self.pending_row_pick.as_ref() else {
+            return;
+        };
+        let file_name = pick
+            .path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let total = pick.total_rows;
+        let gib = pick.file_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        let kind = match pick.kind {
+            RowPickKind::Parquet => "Parquet",
+            RowPickKind::Csv => "CSV",
+        };
+
+        // Dim the rest of the UI while choosing.
+        egui::Area::new(egui::Id::new("row_window_modal_dim"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .show(ctx, |ui| {
+                let screen = ui.ctx().screen_rect();
+                ui.allocate_response(screen.size(), egui::Sense::click());
+                ui.painter().rect_filled(
+                    screen,
+                    0.0,
+                    egui::Color32::from_black_alpha(160),
+                );
+            });
+
+        let mut choice: Option<RowWindow> = None;
+        let mut cancel = false;
+        egui::Window::new("Large file")
+            .id(egui::Id::new("row_window_modal"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_min_width(420.0);
+                ui.label(
+                    egui::RichText::new(format!("{kind}: {file_name}"))
+                        .strong()
+                        .size(15.0),
+                );
+                ui.add_space(6.0);
+                ui.label(format!(
+                    "This file has {} rows (~{:.2} GiB). Chart-Bench loads at most {} rows.",
+                    fmt_status_count(total),
+                    gib,
+                    fmt_status_count(MAX_LOAD_ROWS)
+                ));
+                ui.add_space(4.0);
+                ui.label("Which window should be loaded?");
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_sized(
+                            [190.0, 32.0],
+                            egui::Button::new(format!(
+                                "First {} rows",
+                                fmt_status_count(MAX_LOAD_ROWS)
+                            )),
+                        )
+                        .on_hover_text("Load the beginning / head of the file")
+                        .clicked()
+                    {
+                        choice = Some(RowWindow::Head);
+                    }
+                    if ui
+                        .add_sized(
+                            [190.0, 32.0],
+                            egui::Button::new(format!(
+                                "Last {} rows",
+                                fmt_status_count(MAX_LOAD_ROWS)
+                            )),
+                        )
+                        .on_hover_text("Load the end / tail of the file")
+                        .clicked()
+                    {
+                        choice = Some(RowWindow::Tail);
+                    }
+                });
+                ui.add_space(8.0);
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+
+        if let Some(window) = choice {
+            self.confirm_row_pick(window);
+        } else if cancel {
+            self.pending_row_pick = None;
+            self.status = "Open cancelled.".into();
         }
     }
 
@@ -1127,6 +1368,7 @@ impl eframe::App for ChartBenchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_follows();
         self.poll_parquet_load(ctx);
+        self.show_row_window_dialog(ctx);
         self.autosave();
         Self::apply_favnyr_theme(ctx);
         self.poll_png_export(ctx);
