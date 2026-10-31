@@ -1442,6 +1442,15 @@ impl eframe::App for ChartBenchApp {
                             .color(egui::Color32::from_rgb(180, 165, 210)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Agile Automation mark — far right, ~20px (status strip content height)
+                        ui.add(
+                            egui::Image::new(egui::include_image!(
+                                "../assets/agile-automation-logo.png"
+                            ))
+                            .max_height(20.0)
+                            .maintain_aspect_ratio(true),
+                        );
+                        ui.add_space(4.0);
                         ui.label(
                             egui::RichText::new(format!(
                                 "Chart-Bench  {}",
