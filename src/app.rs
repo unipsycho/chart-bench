@@ -1411,7 +1411,7 @@ impl eframe::App for ChartBenchApp {
 
         // Bottom summary strip (counts + status; no top toolbar)
         egui::TopBottomPanel::bottom("summary")
-            .exact_height(28.0)
+            .exact_height(38.0)
             .frame(
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgb(22, 18, 30))
@@ -1426,28 +1426,31 @@ impl eframe::App for ChartBenchApp {
                 let n_series: usize = self.charts.iter().map(|c| c.series.len()).sum();
                 let n_rows: usize = self.datasets.iter().map(|d| d.record_count()).sum();
                 ui.horizontal(|ui| {
-                    ui.small(format!(
-                        "{} files · {} channels · {} series · {} rows · {} charts",
-                        self.datasets.len(),
-                        n_ch,
-                        n_series,
-                        n_rows,
-                        self.charts.len()
-                    ));
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} files · {} channels · {} series · {} rows · {} charts",
+                            self.datasets.len(),
+                            n_ch,
+                            n_series,
+                            n_rows,
+                            self.charts.len()
+                        ))
+                        .size(13.0),
+                    );
                     ui.separator();
                     ui.label(
                         egui::RichText::new(&self.status)
-                            .small()
+                            .size(13.0)
                             .weak()
                             .color(egui::Color32::from_rgb(180, 165, 210)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Agile Automation mark — far right, ~20px (status strip content height)
+                        // Agile Automation mark — far right (~50% larger than prior 20px)
                         ui.add(
                             egui::Image::new(egui::include_image!(
                                 "../assets/agile-automation-logo.png"
                             ))
-                            .max_height(20.0)
+                            .max_height(30.0)
                             .maintain_aspect_ratio(true),
                         );
                         ui.add_space(4.0);
@@ -1456,7 +1459,7 @@ impl eframe::App for ChartBenchApp {
                                 "Chart-Bench  {}",
                                 env!("CARGO_PKG_VERSION")
                             ))
-                            .small()
+                            .size(16.0)
                             .strong()
                             .color(egui::Color32::from_rgb(200, 175, 240)),
                         );
