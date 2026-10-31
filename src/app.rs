@@ -1409,9 +1409,9 @@ impl eframe::App for ChartBenchApp {
             self.status = "Session saved (Ctrl+S).".into();
         }
 
-        // Bottom summary strip (counts + status; no top toolbar)
+        // Bottom summary strip (counts + status only — brand lives in left header)
         egui::TopBottomPanel::bottom("summary")
-            .exact_height(38.0)
+            .exact_height(28.0)
             .frame(
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgb(22, 18, 30))
@@ -1426,68 +1426,21 @@ impl eframe::App for ChartBenchApp {
                 let n_series: usize = self.charts.iter().map(|c| c.series.len()).sum();
                 let n_rows: usize = self.datasets.iter().map(|d| d.record_count()).sum();
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} files · {} channels · {} series · {} rows · {} charts",
-                            self.datasets.len(),
-                            n_ch,
-                            n_series,
-                            n_rows,
-                            self.charts.len()
-                        ))
-                        .size(13.0),
-                    );
+                    ui.small(format!(
+                        "{} files · {} channels · {} series · {} rows · {} charts",
+                        self.datasets.len(),
+                        n_ch,
+                        n_series,
+                        n_rows,
+                        self.charts.len()
+                    ));
                     ui.separator();
                     ui.label(
                         egui::RichText::new(&self.status)
-                            .size(13.0)
+                            .small()
                             .weak()
                             .color(egui::Color32::from_rgb(180, 165, 210)),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Agile Automation mark — far right (~50% larger than prior 20px)
-                        ui.add(
-                            egui::Image::new(egui::include_image!(
-                                "../assets/agile-automation-logo.png"
-                            ))
-                            .max_height(30.0)
-                            .maintain_aspect_ratio(true),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Chart-Bench  {}",
-                                env!("CARGO_PKG_VERSION")
-                            ))
-                            .size(16.0)
-                            .strong()
-                            .color(egui::Color32::from_rgb(200, 175, 240)),
-                        );
-                    });
-                });
-            });
-
-        // Icon rail — Favourn-like left chrome
-        egui::SidePanel::left("icon_rail")
-            .exact_width(48.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(22, 18, 30))
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgb(100, 80, 140),
-                    ))
-                    .inner_margin(egui::Margin::symmetric(6.0, 8.0)),
-            )
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    icon_toggle(ui, &mut self.ui.show_files, "📁", "Files");
-                    icon_toggle(ui, &mut self.ui.show_channels, "📶", "Channels");
-                    icon_toggle(ui, &mut self.ui.show_info, "ℹ", "Info");
-                    // Painted grid — ▤ / box glyphs often missing from egui fonts
-                    icon_toggle_table(ui, &mut self.ui.show_table);
-                    icon_toggle(ui, &mut self.ui.show_saved, "★", "Saved");
                 });
             });
 
@@ -1537,7 +1490,7 @@ impl eframe::App for ChartBenchApp {
             }
         }
 
-        // Left dock stack (Files / Channels by default — drag headers to rearrange)
+        // Left sidebar: brand header above Files/menu rail + dock stack
         let left_visible: Vec<DockPane> = self
             .ui
             .dock
@@ -1546,24 +1499,85 @@ impl eframe::App for ChartBenchApp {
             .copied()
             .filter(|p| self.ui.pane_visible(*p))
             .collect();
-        if !left_visible.is_empty() || dragging_layout {
-            let resp = egui::SidePanel::left("dock_left")
-                .default_width(200.0)
-                .width_range(96.0..=420.0)
-                .frame(dock_frame())
+        {
+            // Rail 48 + dock (~200 default); keep prior dock width range
+            let resp = egui::SidePanel::left("left_sidebar")
+                .default_width(248.0)
+                .width_range(144.0..=468.0)
+                .frame(
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgb(22, 18, 30))
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgb(100, 80, 140),
+                        ))
+                        .inner_margin(egui::Margin::ZERO),
+                )
                 .show(ctx, |ui| {
-                    // Cap content so selection chrome / row widgets cannot force the column wider
-                    ui.set_max_width(ui.available_width());
-                    self.render_dock_column(ui, DockColumn::Left, &left_visible);
+                    // Brand: logo centered above; Chart-Bench + version centered below (no frame)
+                    ui.add_space(6.0);
+                    ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Image::new(egui::include_image!(
+                                "../assets/agile-automation-logo.png"
+                            ))
+                            .max_height(48.0)
+                            .maintain_aspect_ratio(true),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Chart-Bench  {}",
+                                env!("CARGO_PKG_VERSION")
+                            ))
+                            .size(13.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(200, 175, 240)),
+                        );
+                    });
+                    ui.add_space(6.0);
+
+                    // Files/menu icon rail + left dock under the brand
+                    let body_h = ui.available_height();
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(body_h);
+                        egui::Frame::none()
+                            .inner_margin(egui::Margin::symmetric(6.0, 8.0))
+                            .show(ui, |ui| {
+                                ui.set_width(36.0);
+                                ui.vertical_centered(|ui| {
+                                    icon_toggle(ui, &mut self.ui.show_files, "📁", "Files");
+                                    icon_toggle(ui, &mut self.ui.show_channels, "📶", "Channels");
+                                    icon_toggle(ui, &mut self.ui.show_info, "ℹ", "Info");
+                                    // Painted grid — ▤ / box glyphs often missing from egui fonts
+                                    icon_toggle_table(ui, &mut self.ui.show_table);
+                                    icon_toggle(ui, &mut self.ui.show_saved, "★", "Saved");
+                                });
+                            });
+                        // Dock column fills remaining sidebar width
+                        let dock_frame = dock_frame().inner_margin(egui::Margin::symmetric(4.0, 4.0));
+                        let dock_resp = dock_frame.show(ui, |ui| {
+                            ui.set_min_width(96.0);
+                            ui.set_max_width(ui.available_width());
+                            ui.set_min_height(body_h);
+                            if !left_visible.is_empty() || dragging_layout {
+                                self.render_dock_column(ui, DockColumn::Left, &left_visible);
+                                if left_visible.is_empty() {
+                                    ui.weak("Drop here");
+                                }
+                            }
+                        });
+                        // Full dock body accepts drag; Y decides stack above / below
+                        self.dock_hits.push(DockHit {
+                            kind: DockHitKind::ColumnBody {
+                                col: DockColumn::Left,
+                                len: left_visible.len(),
+                            },
+                            rect: dock_resp.response.rect,
+                        });
+                    });
                 });
-            // Full-height column accepts drag; Y decides stack above / below
-            self.dock_hits.push(DockHit {
-                kind: DockHitKind::ColumnBody {
-                    col: DockColumn::Left,
-                    len: left_visible.len(),
-                },
-                rect: resp.response.rect,
-            });
+            let _ = resp; // panel response unused; dock hit uses inner dock rect
         }
 
         // Right dock stack — entire column is Favnyr drop target (not a tiny footer box)
