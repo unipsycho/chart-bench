@@ -771,9 +771,12 @@ impl ChartBenchApp {
             return;
         }
         let mut open = self.about_open;
-        egui::Window::new("About Chart-Bench")
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            open = false;
+        }
+        let about = egui::Window::new("chart_bench_about")
             .id(egui::Id::new("chart_bench_about"))
-            .open(&mut open)
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -796,6 +799,48 @@ impl ChartBenchApp {
             )
             .show(ctx, |ui| {
                 ui.set_min_width(360.0);
+
+                // Close X overlays top-right of content (no layout allocation → logo stays put)
+                {
+                    let area = ui.available_rect_before_wrap();
+                    let btn = 20.0_f32;
+                    let btn_rect = egui::Rect::from_min_size(
+                        egui::pos2(area.right() - btn, area.top()),
+                        egui::vec2(btn, btn),
+                    );
+                    let resp = ui.interact(
+                        btn_rect,
+                        ui.id().with("about_close"),
+                        egui::Sense::click(),
+                    );
+                    let ink = if resp.hovered() {
+                        egui::Color32::from_rgb(235, 225, 255)
+                    } else {
+                        egui::Color32::from_rgb(170, 150, 210)
+                    };
+                    let stroke = egui::Stroke::new(1.6_f32, ink);
+                    let pad = 5.0_f32;
+                    let painter = ui.painter();
+                    painter.line_segment(
+                        [
+                            egui::pos2(btn_rect.left() + pad, btn_rect.top() + pad),
+                            egui::pos2(btn_rect.right() - pad, btn_rect.bottom() - pad),
+                        ],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [
+                            egui::pos2(btn_rect.right() - pad, btn_rect.top() + pad),
+                            egui::pos2(btn_rect.left() + pad, btn_rect.bottom() - pad),
+                        ],
+                        stroke,
+                    );
+                    if resp.clicked() {
+                        open = false;
+                    }
+                    resp.on_hover_text("Close");
+                }
+
                 ui.vertical_centered(|ui| {
                     ui.add(
                         egui::Image::new(egui::include_image!(
@@ -958,6 +1003,7 @@ impl ChartBenchApp {
                     }
                 });
             });
+        let _ = about;
         self.about_open = open;
     }
 

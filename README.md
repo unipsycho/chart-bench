@@ -1,6 +1,6 @@
 # Chart-Bench
 
-Fast multi-file channel graphing for instrumentation and control dumps — **CSV · Excel · Parquet · MATLAB · MF4 · WITSML · SQLite**, **100% Rust**, **egui + egui_plot**.
+Fast multi-file channel graphing for instrumentation and control data — **CSV · Excel · Parquet · MATLAB · MF4 · WITSML · SQLite**, **100% Rust**, **egui + egui_plot**.
 
 ## Why Chart-Bench
 
