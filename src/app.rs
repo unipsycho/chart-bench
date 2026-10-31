@@ -25,6 +25,7 @@ use crate::model::{
     YAxisMode,
 };
 use crate::stats::{channel_stats, file_stats, sparkline};
+use crate::update::{self, UpdateEvent, UpdateService, UpdateStatus};
 
 pub struct ChartBenchApp {
     pub datasets: Vec<Dataset>,
@@ -79,6 +80,10 @@ pub struct ChartBenchApp {
     watch_rx: Receiver<PathBuf>,
     _watcher: Option<RecommendedWatcher>,
     watched: HashMap<String, ()>,
+    /// About window (opened from left sidebar brand header).
+    about_open: bool,
+    update_service: UpdateService,
+    update_status: UpdateStatus,
 }
 
 impl Default for ChartBenchApp {
@@ -117,6 +122,9 @@ impl Default for ChartBenchApp {
             watch_rx,
             _watcher: None,
             watched: HashMap::new(),
+            about_open: false,
+            update_service: UpdateService::new(),
+            update_status: UpdateStatus::Idle,
         };
         app.init_watcher();
         app.try_restore_session();
@@ -721,10 +729,205 @@ impl ChartBenchApp {
 
         if let Some(window) = choice {
             self.confirm_row_pick(window);
-        } else if cancel {
+        } else         if cancel {
             self.pending_row_pick = None;
             self.status = "Open cancelled.".into();
         }
+    }
+
+    /// Poll background GitHub Releases check for the About window.
+    fn poll_update_check(&mut self, ctx: &egui::Context) {
+        if let Some(ev) = self.update_service.try_recv() {
+            match ev {
+                UpdateEvent::Ok {
+                    info,
+                    update_available,
+                } => {
+                    self.update_status = if update_available {
+                        UpdateStatus::Available {
+                            latest: info.tag,
+                            html_url: info.html_url,
+                        }
+                    } else {
+                        UpdateStatus::UpToDate {
+                            latest: info.tag,
+                        }
+                    };
+                }
+                UpdateEvent::Failed(msg) => {
+                    self.update_status = UpdateStatus::Error(msg);
+                }
+            }
+            ctx.request_repaint();
+        }
+        if matches!(self.update_status, UpdateStatus::Checking) {
+            ctx.request_repaint_after(Duration::from_millis(200));
+        }
+    }
+
+    /// Polished About window — brand, version, update check, product + GitHub links.
+    fn show_about_window(&mut self, ctx: &egui::Context) {
+        if !self.about_open {
+            return;
+        }
+        let mut open = self.about_open;
+        egui::Window::new("About Chart-Bench")
+            .id(egui::Id::new("chart_bench_about"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .order(egui::Order::Foreground)
+            .frame(
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(28, 22, 40))
+                    .stroke(egui::Stroke::new(
+                        1.5,
+                        egui::Color32::from_rgb(150, 120, 200),
+                    ))
+                    .inner_margin(egui::Margin::symmetric(28.0, 22.0))
+                    .rounding(10.0)
+                    .shadow(egui::Shadow {
+                        offset: egui::vec2(0.0, 8.0),
+                        blur: 24.0,
+                        spread: 0.0,
+                        color: egui::Color32::from_black_alpha(160),
+                    }),
+            )
+            .show(ctx, |ui| {
+                ui.set_min_width(360.0);
+                ui.vertical_centered(|ui| {
+                    ui.add(
+                        egui::Image::new(egui::include_image!(
+                            "../assets/agile-automation-logo.png"
+                        ))
+                        .max_height(96.0)
+                        .maintain_aspect_ratio(true),
+                    );
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("Chart-Bench")
+                            .size(26.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(235, 225, 255)),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                            .size(14.0)
+                            .color(egui::Color32::from_rgb(180, 160, 220)),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("CSV · Parquet · XLS · DAQ graphing")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(150, 135, 180)),
+                    );
+                });
+
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(12.0);
+
+                // Check for updates
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let checking = matches!(self.update_status, UpdateStatus::Checking);
+                    let btn = ui.add_enabled(
+                        !checking,
+                        egui::Button::new(if checking {
+                            "Checking…"
+                        } else {
+                            "Check for updates"
+                        })
+                        .min_size(egui::vec2(150.0, 28.0)),
+                    );
+                    if btn.clicked() {
+                        self.update_status = UpdateStatus::Checking;
+                        self.update_service.start_check();
+                    }
+                });
+                ui.add_space(6.0);
+                match &self.update_status {
+                    UpdateStatus::Idle => {
+                        ui.weak("Compare this build to the latest GitHub release.");
+                    }
+                    UpdateStatus::Checking => {
+                        ui.label(
+                            egui::RichText::new("Checking for updates…")
+                                .color(egui::Color32::from_rgb(200, 180, 240)),
+                        );
+                    }
+                    UpdateStatus::UpToDate { latest } => {
+                        ui.label(
+                            egui::RichText::new(format!("You're up to date ({latest})."))
+                                .color(egui::Color32::from_rgb(140, 210, 160)),
+                        );
+                    }
+                    UpdateStatus::Available { latest, html_url } => {
+                        ui.label(
+                            egui::RichText::new(format!("Update available: {latest}"))
+                                .strong()
+                                .color(egui::Color32::from_rgb(240, 190, 120)),
+                        );
+                        let url = html_url.clone();
+                        if ui
+                            .link(
+                                egui::RichText::new("View release on GitHub →")
+                                    .color(egui::Color32::from_rgb(160, 190, 255)),
+                            )
+                            .clicked()
+                        {
+                            let _ = update::open_url(&url);
+                        }
+                    }
+                    UpdateStatus::Error(msg) => {
+                        ui.label(
+                            egui::RichText::new(format!("Couldn't check: {msg}"))
+                                .color(egui::Color32::from_rgb(230, 140, 140)),
+                        );
+                    }
+                }
+
+                ui.add_space(14.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                ui.label(
+                    egui::RichText::new("See more products")
+                        .strong()
+                        .size(14.0)
+                        .color(egui::Color32::from_rgb(220, 205, 245)),
+                );
+                ui.add_space(4.0);
+                if ui
+                    .link(
+                        egui::RichText::new("Agile Automation products →")
+                            .color(egui::Color32::from_rgb(160, 190, 255)),
+                    )
+                    .on_hover_text(update::PRODUCTS_URL)
+                    .clicked()
+                {
+                    let _ = update::open_url(update::PRODUCTS_URL);
+                }
+
+                ui.add_space(12.0);
+                if ui
+                    .link(
+                        egui::RichText::new("github.com/unipsycho/chart-bench")
+                            .color(egui::Color32::from_rgb(160, 190, 255)),
+                    )
+                    .on_hover_text(update::GITHUB_URL)
+                    .clicked()
+                {
+                    let _ = update::open_url(update::GITHUB_URL);
+                }
+
+                ui.add_space(8.0);
+                ui.vertical_centered(|ui| {
+                    ui.weak("© Agile Automation");
+                });
+            });
+        self.about_open = open;
     }
 
     /// Push several datasets from one file (XLSX sheets, SQLite tables, …).
@@ -1368,7 +1571,9 @@ impl eframe::App for ChartBenchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_follows();
         self.poll_parquet_load(ctx);
+        self.poll_update_check(ctx);
         self.show_row_window_dialog(ctx);
+        self.show_about_window(ctx);
         self.autosave();
         Self::apply_favnyr_theme(ctx);
         self.poll_png_export(ctx);
@@ -1449,8 +1654,7 @@ impl eframe::App for ChartBenchApp {
         self.ui.dock.normalize();
         self.dock_hits.clear();
         let dragging_pane = egui::DragAndDrop::has_payload_of_type::<DockPane>(ctx);
-        let dragging_chart = egui::DragAndDrop::has_payload_of_type::<ChartDrag>(ctx);
-        let dragging_layout = dragging_pane || dragging_chart;
+        // Empty panel columns only appear for panel drags — never for chart drags.
         let bottom_visible: Vec<DockPane> = self
             .ui
             .dock
@@ -1459,7 +1663,7 @@ impl eframe::App for ChartBenchApp {
             .copied()
             .filter(|p| self.ui.pane_visible(*p))
             .collect();
-        if !bottom_visible.is_empty() || dragging_layout {
+        if !bottom_visible.is_empty() || dragging_pane {
             let h = self.table_strip_height.clamp(72.0, 260.0);
             let panel = egui::TopBottomPanel::bottom("dock_bottom")
                 .resizable(true)
@@ -1514,18 +1718,36 @@ impl eframe::App for ChartBenchApp {
                         .inner_margin(egui::Margin::ZERO),
                 )
                 .show(ctx, |ui| {
-                    // Brand: logo centered above; Chart-Bench + version centered below (no frame)
+                    // Brand header — click opens polished About window
                     ui.add_space(6.0);
-                    ui.vertical_centered(|ui| {
-                        ui.add(
+                    {
+                        let sense = egui::Sense::click();
+                        let desired = egui::vec2(ui.available_width(), 72.0);
+                        let (rect, brand) = ui.allocate_exact_size(desired, sense);
+                        if brand.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                egui::Rounding::same(4.0),
+                                egui::Color32::from_rgba_unmultiplied(90, 70, 140, 55),
+                            );
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        let mut brand_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(rect)
+                                .layout(egui::Layout::top_down(egui::Align::Center)),
+                        );
+                        brand_ui.set_clip_rect(rect);
+                        brand_ui.add_space(2.0);
+                        brand_ui.add(
                             egui::Image::new(egui::include_image!(
                                 "../assets/agile-automation-logo.png"
                             ))
                             .max_height(48.0)
                             .maintain_aspect_ratio(true),
                         );
-                        ui.add_space(4.0);
-                        ui.label(
+                        brand_ui.add_space(2.0);
+                        brand_ui.label(
                             egui::RichText::new(format!(
                                 "Chart-Bench  {}",
                                 env!("CARGO_PKG_VERSION")
@@ -1534,7 +1756,11 @@ impl eframe::App for ChartBenchApp {
                             .strong()
                             .color(egui::Color32::from_rgb(200, 175, 240)),
                         );
-                    });
+                        if brand.clicked() {
+                            self.about_open = true;
+                        }
+                        brand.on_hover_text("About Chart-Bench");
+                    }
                     ui.add_space(6.0);
 
                     // Files/menu icon rail + left dock under the brand
@@ -1560,7 +1786,7 @@ impl eframe::App for ChartBenchApp {
                             ui.set_min_width(96.0);
                             ui.set_max_width(ui.available_width());
                             ui.set_min_height(body_h);
-                            if !left_visible.is_empty() || dragging_layout {
+                            if !left_visible.is_empty() || dragging_pane {
                                 self.render_dock_column(ui, DockColumn::Left, &left_visible);
                                 if left_visible.is_empty() {
                                     ui.weak("Drop here");
@@ -1589,7 +1815,7 @@ impl eframe::App for ChartBenchApp {
             .copied()
             .filter(|p| self.ui.pane_visible(*p))
             .collect();
-        if !right_visible.is_empty() || dragging_layout {
+        if !right_visible.is_empty() || dragging_pane {
             let resp = egui::SidePanel::right("dock_right")
                 .default_width(260.0)
                 .min_width(160.0)
@@ -1717,7 +1943,7 @@ impl ChartBenchApp {
                                         want_close = true;
                                     }
                                 });
-                                self.draw_plot(ui, idx);
+                                self.draw_plot(ui, idx, true);
                             });
                     } else {
                         egui::CentralPanel::default()
@@ -1736,7 +1962,7 @@ impl ChartBenchApp {
                                         want_close = true;
                                     }
                                 });
-                                self.draw_plot(ui, idx);
+                                self.draw_plot(ui, idx, true);
                             });
                     }
                 },
@@ -1825,68 +2051,73 @@ impl ChartBenchApp {
             .inner_margin(egui::Margin::same(6.0))
             .rounding(4.0);
 
+        // Always top-down inside the frame — parent may be bottom_up when stacking
+        // below Channels, which would invert Saved/Info (Presets header under list).
         let body = |ui: &mut egui::Ui, app: &mut Self| {
-            // Draggable title — rearrange via DnD (no chevron move buttons)
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let id = egui::Id::new(("dock_hdr", pane));
-                let drag = ui.dnd_drag_source(id, pane, |ui| {
-                    let fill = if ui.ctx().is_being_dragged(id) {
-                        egui::Color32::from_rgb(90, 70, 140)
-                    } else {
-                        egui::Color32::from_rgb(48, 40, 68)
-                    };
-                    egui::Frame::none()
-                        .fill(fill)
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            egui::Color32::from_rgb(150, 120, 200),
-                        ))
-                        .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                        .rounding(4.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
-                                if pane == DockPane::Table {
-                                    paint_table_glyph(ui, egui::vec2(14.0, 12.0));
-                                } else {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_width(ui.available_width());
+                // Draggable title — rearrange via DnD (no chevron move buttons)
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let id = egui::Id::new(("dock_hdr", pane));
+                    let drag = ui.dnd_drag_source(id, pane, |ui| {
+                        let fill = if ui.ctx().is_being_dragged(id) {
+                            egui::Color32::from_rgb(90, 70, 140)
+                        } else {
+                            egui::Color32::from_rgb(48, 40, 68)
+                        };
+                        egui::Frame::none()
+                            .fill(fill)
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                egui::Color32::from_rgb(150, 120, 200),
+                            ))
+                            .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                            .rounding(4.0)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 6.0;
+                                    if pane == DockPane::Table {
+                                        paint_table_glyph(ui, egui::vec2(14.0, 12.0));
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new(pane.glyph())
+                                                .strong()
+                                                .size(14.0)
+                                                .color(egui::Color32::from_rgb(235, 225, 255)),
+                                        );
+                                    }
                                     ui.label(
-                                        egui::RichText::new(pane.glyph())
+                                        egui::RichText::new(pane.title())
                                             .strong()
                                             .size(14.0)
                                             .color(egui::Color32::from_rgb(235, 225, 255)),
                                     );
-                                }
-                                ui.label(
-                                    egui::RichText::new(pane.title())
-                                        .strong()
-                                        .size(14.0)
-                                        .color(egui::Color32::from_rgb(235, 225, 255)),
-                                );
+                                });
                             });
-                        });
+                    });
+                    drag.response.on_hover_text(
+                        "Drag title — drop on a column: stack above or below (or take empty column)",
+                    );
+                    // Files header: New chart (empty leaf — drag title to place)
+                    if pane == DockPane::Files
+                        && files_new_chart_button(ui)
+                            .on_hover_text("Add empty chart — then drag its title into place")
+                            .clicked()
+                    {
+                        app.add_empty_chart();
+                    }
                 });
-                drag.response.on_hover_text(
-                    "Drag title — drop on a column: stack above or below (or take empty column)",
-                );
-                // Files header: New chart (empty leaf — drag title to place)
-                if pane == DockPane::Files
-                    && files_new_chart_button(ui)
-                        .on_hover_text("Add empty chart — then drag its title into place")
-                        .clicked()
-                {
-                    app.add_empty_chart();
-                }
-            });
 
-            ui.add_space(4.0);
-            match pane {
-                DockPane::Files => app.files_pane(ui),
-                DockPane::Channels => app.channels_pane(ui),
-                DockPane::Info => app.info_pane(ui),
-                DockPane::Saved => app.saved_pane(ui),
-                DockPane::Table => app.table_pane(ui),
-            };
+                ui.add_space(4.0);
+                match pane {
+                    DockPane::Files => app.files_pane(ui),
+                    DockPane::Channels => app.channels_pane(ui),
+                    DockPane::Info => app.info_pane(ui),
+                    DockPane::Saved => app.saved_pane(ui),
+                    DockPane::Table => app.table_pane(ui),
+                };
+            });
         };
 
         if fill {
@@ -2084,12 +2315,20 @@ impl ChartBenchApp {
             return;
         };
 
-        let Some(hit) = pick_dock_hit(&self.dock_hits, pos) else {
+        // Two distinct target sets: charts ↔ chart dock only; panes ↔ panel columns only.
+        let Some(hit) = pick_dock_hit(
+            &self.dock_hits,
+            pos,
+            dragging_pane.is_some(),
+            dragging_chart.is_some(),
+        ) else {
+            self.pending_favnyr = None;
             return;
         };
 
         let action = resolve_favnyr_action(&hit, pos, dragging_pane, dragging_chart);
         let Some(mut action) = action else {
+            self.pending_favnyr = None;
             return;
         };
 
@@ -3189,7 +3428,7 @@ impl ChartBenchApp {
         // Only take Uuid payloads — egui's take_payload clears ANY payload on type
         // mismatch, which was aborting chart-tile SPLIT drops over the plot.
         let plot_resp = egui::Frame::none().show(ui, |ui| {
-            self.draw_plot(ui, idx);
+            self.draw_plot(ui, idx, false);
         });
         if plot_resp.response.contains_pointer()
             && ui.input(|i| i.pointer.any_released())
@@ -3346,7 +3585,8 @@ impl ChartBenchApp {
         ui.add_space(4.0);
     }
 
-    fn draw_plot(&mut self, ui: &mut egui::Ui, idx: usize) {
+    /// `popout`: separate Plot Id namespace so main tile + pop-out never share memory.
+    fn draw_plot(&mut self, ui: &mut egui::Ui, idx: usize, popout: bool) {
         let chart = match self.charts.get(idx) {
             Some(c) => c.clone(),
             None => return,
@@ -3438,13 +3678,15 @@ impl ChartBenchApp {
             egui::vec2(ui.available_width(), avail),
         );
         crate::chart_theme::with_plot_contrast(ui, bg, |ui| {
-            // Link X only when this tile has drawable data — an empty sibling in the
-            // shared link group poisons bounds (blank plots after Add chart).
             let has_plot_data = !overlay_series.is_empty() || preview.is_some();
-            let mut plot_l = Plot::new(("plot_l", chart.id)).height(avail);
-            if has_plot_data {
-                plot_l = plot_l.link_axis(egui::Id::new("chart_bench_shared_x"), true, false);
-            }
+            // Unique Plot Id per chart (+ pop-out vs main). No link_axis / link_group —
+            // shared X previously leaked zoom/grid paint across tiles and flashed on focus loss.
+            let plot_id = if popout {
+                ("chart_bench_plot", chart.id, "pop")
+            } else {
+                ("chart_bench_plot", chart.id, "main")
+            };
+            let mut plot_l = Plot::new(plot_id).height(avail);
             plot_l = plot_l
                 // No hover/wheel/edge axis pan — wheel zooms X via apply_wheel_zoom_x_clamped; drag pans X.
                 // Y stays locked auto (fit visible series); do not drag/zoom Y.
@@ -3745,24 +3987,45 @@ struct FavnyrAction {
     commit: FavnyrCommit,
 }
 
-fn pick_dock_hit(hits: &[DockHit], pos: egui::Pos2) -> Option<DockHit> {
-    let containing: Vec<&DockHit> = hits.iter().filter(|h| h.rect.contains(pos)).collect();
+/// Pick a drop hit filtered by drag kind — charts never hit panel columns; panes never hit charts.
+fn pick_dock_hit(
+    hits: &[DockHit],
+    pos: egui::Pos2,
+    for_pane: bool,
+    for_chart: bool,
+) -> Option<DockHit> {
+    let containing: Vec<&DockHit> = hits
+        .iter()
+        .filter(|h| h.rect.contains(pos))
+        .filter(|h| match h.kind {
+            DockHitKind::ColumnBody { .. } => for_pane,
+            DockHitKind::ChartTile { .. } | DockHitKind::Canvas => for_chart,
+        })
+        .collect();
     if containing.is_empty() {
         return None;
     }
-    // Prefer full column body over tiny leftovers / canvas
-    if let Some(h) = containing
-        .iter()
-        .find(|h| matches!(h.kind, DockHitKind::ColumnBody { .. }))
-    {
-        return Some((*h).clone());
+    if for_pane {
+        if let Some(h) = containing
+            .iter()
+            .find(|h| matches!(h.kind, DockHitKind::ColumnBody { .. }))
+        {
+            return Some((*h).clone());
+        }
     }
-    // Prefer chart tiles over the whole canvas
-    if let Some(h) = containing
-        .iter()
-        .find(|h| matches!(h.kind, DockHitKind::ChartTile { .. }))
-    {
-        return Some((*h).clone());
+    if for_chart {
+        if let Some(h) = containing
+            .iter()
+            .find(|h| matches!(h.kind, DockHitKind::ChartTile { .. }))
+        {
+            return Some((*h).clone());
+        }
+        if let Some(h) = containing
+            .iter()
+            .find(|h| matches!(h.kind, DockHitKind::Canvas))
+        {
+            return Some((*h).clone());
+        }
     }
     containing
         .into_iter()
@@ -3807,57 +4070,27 @@ fn resolve_favnyr_action(
     dragging_pane: Option<DockPane>,
     dragging_chart: Option<usize>,
 ) -> Option<FavnyrAction> {
+    // Panels: left / right / bottom column bodies only — never chart tiles or canvas.
     if let Some(pane) = dragging_pane {
-        return Some(match hit.kind {
+        return match hit.kind {
             DockHitKind::ColumnBody { col, len } => {
                 let (preview, label, idx) = column_band(hit.rect, pos, col, len);
-                FavnyrAction {
+                Some(FavnyrAction {
                     preview,
                     label,
                     landing: LandingKind::Stack,
                     commit: FavnyrCommit::Dock { pane, col, idx },
-                }
+                })
             }
-            DockHitKind::Canvas | DockHitKind::ChartTile { .. } => {
-                // Dock panes only move — edge = target column, center = right stack
-                let zone = edge_zone(hit.rect, pos);
-                let (preview, label, col, idx) = match zone {
-                    EdgeZone::West => (left_half(hit.rect), "stack left", DockColumn::Left, usize::MAX),
-                    EdgeZone::East => (right_half(hit.rect), "stack right", DockColumn::Right, usize::MAX),
-                    EdgeZone::South => {
-                        (bottom_half(hit.rect), "stack bottom", DockColumn::Bottom, usize::MAX)
-                    }
-                    EdgeZone::North => (top_half(hit.rect), "stack top", DockColumn::Left, 0),
-                    EdgeZone::Center => (
-                        hit.rect
-                            .shrink(hit.rect.width().min(hit.rect.height()) * 0.22),
-                        "stack here",
-                        DockColumn::Right,
-                        usize::MAX,
-                    ),
-                };
-                FavnyrAction {
-                    preview,
-                    label,
-                    landing: LandingKind::Stack,
-                    commit: FavnyrCommit::Dock { pane, col, idx },
-                }
-            }
-        });
+            DockHitKind::Canvas | DockHitKind::ChartTile { .. } => None,
+        };
     }
 
+    // Charts: main chart dock only (tiles + canvas) — never outer panel columns.
     if let Some(from_idx) = dragging_chart {
-        // Resolve dragged chart id later via index in apply — here we need Uuid from hit
-        // Caller passes index; ChartTile carries chart_id for the target leaf.
-        return Some(match hit.kind {
+        return match hit.kind {
             DockHitKind::ChartTile { chart_id: target, .. } => {
                 let zone = edge_zone(hit.rect, pos);
-                // from_idx is still an index — encode as Uuid via temporary; resolve in apply
-                // We stash from as Uuid::from_u128(index) is wrong. Use placeholder: commit
-                // stores from as target for now? Better: change dragging_chart to Uuid.
-                // Here `from_idx` is usize — convert via a side channel in FavnyrCommit.
-                // ChartSplit.from / ChartSwap.a are Uuid — resolve below using index→need charts.
-                // Keep usize payload on ChartDrag; resolve Uuid in favnyr_dock_drop_preview.
                 let (preview, label, landing, edge) = match zone {
                     EdgeZone::North => (
                         top_half(hit.rect),
@@ -3890,7 +4123,7 @@ fn resolve_favnyr_action(
                         TileEdge::South, // unused
                     ),
                 };
-                if matches!(zone, EdgeZone::Center) {
+                Some(if matches!(zone, EdgeZone::Center) {
                     FavnyrAction {
                         preview,
                         label,
@@ -3912,27 +4145,7 @@ fn resolve_favnyr_action(
                             edge,
                         },
                     }
-                }
-            }
-            DockHitKind::ColumnBody { col, .. } => {
-                let (preview, _, _) = column_band(hit.rect, pos, col, 1);
-                let (landing, label, edge) = match col {
-                    DockColumn::Left => (LandingKind::SplitLeft, "SPLIT · left", TileEdge::West),
-                    DockColumn::Right => (LandingKind::SplitRight, "SPLIT · right", TileEdge::East),
-                    DockColumn::Bottom => {
-                        (LandingKind::SplitBottom, "SPLIT · bottom", TileEdge::South)
-                    }
-                };
-                FavnyrAction {
-                    preview,
-                    label,
-                    landing,
-                    commit: FavnyrCommit::ChartSplit {
-                        from: Uuid::from_u128(from_idx as u128),
-                        target: Uuid::nil(), // means: split at root
-                        edge,
-                    },
-                }
+                })
             }
             DockHitKind::Canvas => {
                 let zone = edge_zone(hit.rect, pos);
@@ -3968,7 +4181,7 @@ fn resolve_favnyr_action(
                         TileEdge::South,
                     ),
                 };
-                if matches!(zone, EdgeZone::Center) {
+                Some(if matches!(zone, EdgeZone::Center) {
                     FavnyrAction {
                         preview,
                         label,
@@ -3989,9 +4202,10 @@ fn resolve_favnyr_action(
                             edge,
                         },
                     }
-                }
+                })
             }
-        });
+            DockHitKind::ColumnBody { .. } => None,
+        };
     }
     None
 }

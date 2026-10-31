@@ -72,6 +72,7 @@ Pinned crate versions in `Cargo.toml` (egui/eframe/egui_plot **0.29**).
 | `GAPS.md` | Outstanding gaps |
 | `TODO.md` | Actionable checklist |
 | `README.md` | Quick start + MVP feature table |
-| `docs/planning/` | Full planning reports |
+| `docs/planning/` | Still-useful planning notes (open design + competitive reference) |
+| `samples/README.md` | Sample-file catalog + provenance |
 
-Key planning reports: `favnyr-csv-feature-map.md`, `plot-capabilities-scope.md`, `csv-header-channel-detection.md`, `product-workflow-vision.md`, `data-info-panel-analysis.md`, `live-file-reload.md`, `csv-detection-tools-landscape.md`, `competitive-csv-graphing-survey.md`, `csv-bench-competitors.md` (technical competitor notes), `ui-chrome-navigation.md`, `csv-bench-m17-build.md`, `csv-bench-sample-csvs.md`, `csv-bench-ui-pass.md`, `project-context.md`.
+Active planning notes: `competitive-csv-graphing-survey.md`, `csv-bench-competitors.md`, `product-workflow-vision.md`, `csv-header-channel-detection.md`, `data-info-panel-analysis.md`, `live-file-reload.md`, `plot-capabilities-scope.md`, `csv-detection-tools-landscape.md`.

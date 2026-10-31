@@ -2,7 +2,7 @@
 
 **Audience:** product review before building.  
 **Stack assumption:** egui + eframe + **egui_plot** (TopicBench-aligned). Custom `Painter` only where egui_plot is too weak.  
-**Related:** [favnyr-csv-feature-map.md](favnyr-csv-feature-map.md), [project-context.md](project-context.md).  
+**Related:** [`PROJECT.md`](../../PROJECT.md), [product-workflow-vision.md](product-workflow-vision.md).  
 **Confidence:** API surface from egui_plot’s public design (crate split from egui); verify exact type names against the pinned crate version at scaffold time — docs.rs unreachable from the cloud agent that authored this.
 
 ---

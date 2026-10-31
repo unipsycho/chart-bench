@@ -102,7 +102,8 @@ Tiny demos live in [`samples/`](samples/). Parquet fixtures: [`samples/parquet/`
 - Decisions: [`PROJECT.md`](PROJECT.md)
 - Gaps: [`GAPS.md`](GAPS.md)
 - Todos: [`TODO.md`](TODO.md)
-- Planning notes: [`docs/planning/`](docs/planning/)
+- Open planning notes: [`docs/planning/`](docs/planning/)
+- Sample catalog: [`samples/README.md`](samples/README.md)
 
 ## License
 

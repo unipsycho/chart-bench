@@ -29,21 +29,21 @@ Actionable list (titles from the former Project tracker; Cursor task IDs dropped
 - [x] Channel list ↑↓ keyboard nav
 - [x] Stack Info + Saved/Presets in one right column; dock stacks rearrangeable + session-persisted
 - [x] Relaunch Chart-Bench GUI on M17
-- [x] Fix channel names and Favnyr-ish UI layout pass → `docs/planning/csv-bench-ui-pass.md`
+- [x] Fix channel names and Favnyr-ish UI layout pass
 - [x] Launch Chart-Bench GUI on M17
-- [x] Collect varied public CSV samples → `docs/planning/csv-bench-sample-csvs.md`, `samples/`
+- [x] Collect varied public CSV samples → `samples/` (+ `samples/README.md`)
 - [x] Mid-size open stress CSVs (~100k–500k) — local/gitignored; see `samples/README.md`
 - [x] Clear painted Table icon on icon rail + Table section header
-- [x] Build and run chart-bench on M17 → `docs/planning/csv-bench-m17-build.md`
+- [x] Build and run chart-bench on M17
 - [x] Scaffold chart-bench egui workbench source
-- [x] Decide UI chrome and navigation model → `docs/planning/ui-chrome-navigation.md`
+- [x] Decide UI chrome and navigation model (panel-first + icon rail)
 - [x] Design live / growing file follow mode → `docs/planning/live-file-reload.md`
 - [x] Survey CSV sniffing and channel-detection tools → `docs/planning/csv-detection-tools-landscape.md`
 - [x] Design data info panel and local analysis → `docs/planning/data-info-panel-analysis.md`
 - [x] Capture DnD workflow and preset vision → `docs/planning/product-workflow-vision.md`
 - [x] Design multi-line CSV header and channel detection → `docs/planning/csv-header-channel-detection.md`
 - [x] Scope egui_plot chart capabilities → `docs/planning/plot-capabilities-scope.md`
-- [x] Map Favnyr features to a CSV graphing tool → `docs/planning/favnyr-csv-feature-map.md`
+- [x] Map Favnyr features to a CSV graphing tool (decisions folded into `PROJECT.md`)
 
 ## Deferred / won't do (for now)
 

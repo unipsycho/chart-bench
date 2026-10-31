@@ -43,6 +43,8 @@ quick-xml = "0.36"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Match eframe/egui-winit; used to force X11 so OS file drops work (winit Wayland has no DroppedFile).
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11"] }
+# About → Check for updates (GitHub Releases API).
+ureq = { version = "2.12", features = ["json"] }
 
 [build-dependencies]
 # Embed chart-bench.exe icon on Windows (and cross-compile via MinGW windres).

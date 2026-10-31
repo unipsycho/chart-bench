@@ -6,3 +6,4 @@ pub mod export_png;
 pub mod ingest;
 pub mod model;
 pub mod stats;
+pub mod update;

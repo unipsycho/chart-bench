@@ -1,7 +1,7 @@
 # Flexible CSV headers & smart channel detection
 
 **Status:** Owner requirement — Layer A (ingest), not optional polish.  
-**Related:** [project-context.md](project-context.md), [plot-capabilities-scope.md](plot-capabilities-scope.md).
+**Related:** [`PROJECT.md`](../../PROJECT.md), [plot-capabilities-scope.md](plot-capabilities-scope.md).
 
 ---
 

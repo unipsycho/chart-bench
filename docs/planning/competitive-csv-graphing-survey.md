@@ -2,7 +2,7 @@
 
 **Status:** Complete (M17, 2026-10-28). Web + GitHub spot-check.  
 **Purpose:** Position **Chart-Bench** before locking MVP scope — strengths of peers, gaps vs our goals, differentiation.  
-**Related:** [product-workflow-vision.md](product-workflow-vision.md), [favnyr-csv-feature-map.md](favnyr-csv-feature-map.md), [csv-detection-tools-landscape.md](csv-detection-tools-landscape.md), [plot-capabilities-scope.md](plot-capabilities-scope.md).
+**Related:** [product-workflow-vision.md](product-workflow-vision.md), [csv-detection-tools-landscape.md](csv-detection-tools-landscape.md), [plot-capabilities-scope.md](plot-capabilities-scope.md), [`PROJECT.md`](../../PROJECT.md).
 
 **Note:** Prefer official hosts. PlotJuggler README warns that **plotjuggler.com** has been impersonated — use [plotjuggler.io](https://www.plotjuggler.io) / [github.com/PlotJuggler/PlotJuggler](https://github.com/PlotJuggler/PlotJuggler).
 
@@ -287,6 +287,6 @@ Keep investing in: dual-Y overlay polish, multi-line header ParsePlan, Favnyr bi
 - LibreOffice Calc chart guide (secondary Y)  
 - OriginLab product pages; NI DIAdem / TestFlow DIAdem-alternatives context  
 - Timeplotters manual (jkff.info); Teleplot / Serial Studio / Perspective / Tad GitHub  
-- Local planning: product-workflow-vision, favnyr-csv-feature-map, csv-detection-tools-landscape  
+- Local planning: product-workflow-vision, csv-detection-tools-landscape, PROJECT.md  
 
 Scrapes / search JSON under `.firecrawl/competitive-survey/` on M17 (research cache; not product docs).
