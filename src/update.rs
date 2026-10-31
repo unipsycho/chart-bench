@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 pub const GITHUB_REPO: &str = "unipsycho/chart-bench";
 pub const GITHUB_URL: &str = "https://github.com/unipsycho/chart-bench";
+/// Company home (footer / brand link).
+pub const COMPANY_URL: &str = "https://www.agileautomation.ca";
 /// Company products page (same site TopicBench Pro uses).
 pub const PRODUCTS_URL: &str = "https://www.agileautomation.ca/products";
 

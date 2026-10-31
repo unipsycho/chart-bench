@@ -818,7 +818,9 @@ impl ChartBenchApp {
                     );
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new("CSV · Parquet · XLS · DAQ graphing")
+                        egui::RichText::new(
+                            "CSV · Parquet · XLS · MATLAB · SQLite · XML · DAQ charting",
+                        )
                             .size(12.0)
                             .color(egui::Color32::from_rgb(150, 135, 180)),
                     );
@@ -910,7 +912,14 @@ impl ChartBenchApp {
                     let _ = update::open_url(update::PRODUCTS_URL);
                 }
 
-                ui.add_space(12.0);
+                ui.add_space(14.0);
+                ui.label(
+                    egui::RichText::new("Source code")
+                        .strong()
+                        .size(14.0)
+                        .color(egui::Color32::from_rgb(220, 205, 245)),
+                );
+                ui.add_space(4.0);
                 if ui
                     .link(
                         egui::RichText::new("github.com/unipsycho/chart-bench")
@@ -922,9 +931,31 @@ impl ChartBenchApp {
                     let _ = update::open_url(update::GITHUB_URL);
                 }
 
-                ui.add_space(8.0);
+                ui.add_space(14.0);
                 ui.vertical_centered(|ui| {
-                    ui.weak("© Agile Automation");
+                    ui.horizontal(|ui| {
+                        ui.weak("©");
+                        if ui
+                            .link(
+                                egui::RichText::new("Agile Automation")
+                                    .color(egui::Color32::from_rgb(160, 190, 255)),
+                            )
+                            .on_hover_text(update::COMPANY_URL)
+                            .clicked()
+                        {
+                            let _ = update::open_url(update::COMPANY_URL);
+                        }
+                    });
+                    if ui
+                        .link(
+                            egui::RichText::new(update::COMPANY_URL)
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(140, 165, 230)),
+                        )
+                        .clicked()
+                    {
+                        let _ = update::open_url(update::COMPANY_URL);
+                    }
                 });
             });
         self.about_open = open;
